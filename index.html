@@ -864,6 +864,40 @@ function WorkLogEntry({ user }) {
       setGlobalWorkers(await db.get("globalWorkers") || []);
     })();
   }, []);
+  const [openTasks, setOpenTasks] = React.useState([]);
+  React.useEffect(() => {
+    if (!selectedProjectId || !project) { setOpenTasks([]); return; }
+    (async () => {
+      const logs = await db.get("worklogs") || [];
+      const projLogs = logs.filter((l) => l.projectId === selectedProjectId);
+      // Collect all items with status != completed
+      const taskMap = {};
+      projLogs.forEach((log) => {
+        (log.items || []).forEach((item) => {
+          if (item.status && item.status !== "completed") {
+            const key = item.tenderItemId + "_" + (item.areaId || "");
+            if (!taskMap[key]) {
+              taskMap[key] = { tenderItemId: item.tenderItemId, itemDesc: item.itemDesc, itemNum: item.itemNum, unit: item.unit, areaId: item.areaId, areaName: item.areaName, totalHours: 0, totalQty: 0, lastDate: "", lastStatus: item.status };
+            }
+            taskMap[key].totalHours += item.hours || 0;
+            taskMap[key].totalQty += item.qty || 0;
+            if (log.date > taskMap[key].lastDate) { taskMap[key].lastDate = log.date; taskMap[key].lastStatus = item.status; }
+          }
+        });
+      });
+      // Remove tasks that were later completed
+      projLogs.forEach((log) => {
+        (log.items || []).forEach((item) => {
+          if (item.status === "completed") {
+            const key = item.tenderItemId + "_" + (item.areaId || "");
+            delete taskMap[key];
+          }
+        });
+      });
+      setOpenTasks(Object.values(taskMap));
+    })();
+  }, [selectedProjectId, project]);
+
   useEffect(() => {
     if (!selectedProjectId) {
       setProject(null);
@@ -874,7 +908,7 @@ function WorkLogEntry({ user }) {
     setSelectedItems([]);
     setWorkerEntries([]);
   }, [selectedProjectId, projects]);
-  const addItem = () => setSelectedItems((prev) => [...prev, { id: genId(), tenderItemId: "", qty: "", areaId: "", notes: "" }]);
+  const addItem = () => setSelectedItems((prev) => [...prev, { id: genId(), tenderItemId: "", qty: "", areaId: "", notes: "", status: "completed", hours: "", workerCount: 1 }]);
   const updateItem = (id, field, val) => setSelectedItems((prev) => prev.map((i) => i.id === id ? { ...i, [field]: val } : i));
   const delItem = (id) => setSelectedItems((prev) => prev.filter((i) => i.id !== id));
   const addWorker = () => {
@@ -892,7 +926,7 @@ function WorkLogEntry({ user }) {
     if (!selectedProjectId || !date) return;
     setSaving(true);
     const logs = await db.get("worklogs") || [];
-    const logItems = (selectedItems || []).filter((i) => i.tenderItemId && parseFloat(i.qty) > 0).map((i) => {
+    const logItems = (selectedItems || []).filter((i) => i.tenderItemId && (parseFloat(i.qty) > 0 || i.status === "in_progress")).map((i) => {
       const ti = (project.tenderItems || []).find((x) => x.id === i.tenderItemId);
       const area = project.workAreas?.find((x) => x.id === i.areaId);
       return {
@@ -904,7 +938,10 @@ function WorkLogEntry({ user }) {
         qty: parseFloat(i.qty) || 0,
         areaId: i.areaId,
         areaName: area?.name || "",
-        notes: i.notes
+        notes: i.notes,
+        status: i.status || "completed",
+        hours: parseFloat(i.hours) || 0,
+        workerCount: parseFloat(i.workerCount) || 1
       };
     });
     const logWorkers = (workerEntries || []).filter((w) => w.workerTypeId && parseFloat(w.count) > 0).map((w) => {
@@ -934,9 +971,49 @@ function WorkLogEntry({ user }) {
   ))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F477} \u05D4\u05E8\u05DB\u05D1 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD"), /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: addWorker, disabled: !project }, "+ \u05D4\u05D5\u05E1\u05E3")), workerEntries.length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", fontSize: 13, textAlign: "center", padding: 12 } }, "\u05D4\u05D5\u05E1\u05E3 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05E9\u05E2\u05D1\u05D3\u05D5 \u05D4\u05D9\u05D5\u05DD"), workerEntries.map((w) => {
     const wt = project?.workerTypes?.find((x) => x.id === w.workerTypeId);
     return /* @__PURE__ */ React.createElement("div", { key: w.id, style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 8, background: "#f8fafc", padding: "8px 10px", borderRadius: 6 } }, /* @__PURE__ */ React.createElement(Select, { value: w.workerTypeId, onChange: (e) => updateWorker(w.id, "workerTypeId", e.target.value), style: { flex: 1 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05E1\u05D5\u05D2 \u05E2\u05D5\u05D1\u05D3 \u2014"), globalWorkers.map((wt2) => /* @__PURE__ */ React.createElement("option", { key: wt2.id, value: wt2.id }, wt2.name, getPerms(user).viewWorkerRates ? " (\u20AA" + wt2.hourlyCost + "/\u05E9\u05E2\u05D4)" : ""))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: w.count, onChange: (e) => updateWorker(w.id, "count", e.target.value), style: { width: 55 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" } }, "\u05E2\u05D5\u05D1\u05D3\u05D9\u05DD")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4 } }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: w.hours || 8, onChange: (e) => updateWorker(w.id, "hours", e.target.value), style: { width: 55 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" } }, "\u05E9\u05E2\u05D5\u05EA")), wt && getPerms(user).viewPrices && /* @__PURE__ */ React.createElement("span", { style: { color: "#059669", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" } }, "\u20AA", ((wt.hourlyCost || 0) * parseFloat(w.hours || 8) * (parseFloat(w.count) || 0)).toLocaleString()), /* @__PURE__ */ React.createElement("button", { onClick: () => delWorker(w.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 16 } }, "\u2715"));
-  }), workerEntries.length && getPerms(user).viewPrices && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "left", paddingTop: 8, borderTop: "1px solid #e5e7eb", fontWeight: 700, color: "#059669", fontSize: 15 } }, "\u05E2\u05DC\u05D5\u05EA \u05D9\u05D5\u05DE\u05D9\u05EA: \u20AA", totalWorkerCost.toLocaleString()))), project && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F4CB} \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E9\u05D1\u05D5\u05E6\u05E2\u05D5"), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: addItem }, "+ \u05D4\u05D5\u05E1\u05E3 \u05E1\u05E2\u05D9\u05E3")), selectedItems.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 24, color: "#9ca3af", border: "2px dashed #e5e7eb", borderRadius: 8 } }, '\u05DC\u05D7\u05E5 "+ \u05D4\u05D5\u05E1\u05E3 \u05E1\u05E2\u05D9\u05E3" \u05DC\u05D1\u05D7\u05D9\u05E8\u05EA \u05D4\u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E9\u05D1\u05D5\u05E6\u05E2\u05D5 \u05D4\u05D9\u05D5\u05DD'), selectedItems.map((item, idx) => {
+  }), workerEntries.length && getPerms(user).viewPrices && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "left", paddingTop: 8, borderTop: "1px solid #e5e7eb", fontWeight: 700, color: "#059669", fontSize: 15 } }, "\u05E2\u05DC\u05D5\u05EA \u05D9\u05D5\u05DE\u05D9\u05EA: \u20AA", totalWorkerCost.toLocaleString()))), project && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F4CB} \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E9\u05D1\u05D5\u05E6\u05E2\u05D5"), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: addItem }, "+ \u05D4\u05D5\u05E1\u05E3 \u05E1\u05E2\u05D9\u05E3")), selectedItems.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 24, color: "#9ca3af", border: "2px dashed #e5e7eb", borderRadius: 8 } }, '\u05DC\u05D7\u05E5 "+ \u05D4\u05D5\u05E1\u05E3 \u05E1\u05E2\u05D9\u05E3" \u05DC\u05D1\u05D7\u05D9\u05E8\u05EA \u05D4\u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E9\u05D1\u05D5\u05E6\u05E2\u05D5 \u05D4\u05D9\u05D5\u05DD'), openTasks.length > 0 && project ? /* @__PURE__ */ React.createElement('div', { style: { background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: 12, marginBottom: 14 } },
+  /* @__PURE__ */ React.createElement('div', { style: { fontWeight: 700, fontSize: 13, color: '#92400e', marginBottom: 8 } }, '\\u26A0\\uFE0F \\u05DE\\u05E9\\u05D9\\u05DE\\u05D5\\u05EA \\u05E4\\u05EA\\u05D5\\u05D7\\u05D5\\u05EA \\u2014 \\u05DC\\u05D7\\u05E5 \\u05DC\\u05D4\\u05D5\\u05E1\\u05E4\\u05D4'),
+  (project && project.workAreas && project.workAreas.length > 0 ?
+    project.workAreas.map(function(area) {
+      var areaTasks = openTasks.filter(function(t){ return t.areaId === area.id; });
+      if (!areaTasks.length) return null;
+      return /* @__PURE__ */ React.createElement('div', { key: area.id, style: { marginBottom: 8 } },
+        /* @__PURE__ */ React.createElement('div', { style: { fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 4 } }, '\\uD83D\\uDCCD ', area.name),
+        areaTasks.map(function(t) {
+          return /* @__PURE__ */ React.createElement('button', { key: t.tenderItemId+'_'+t.areaId, onClick: function(){ addItem(); setTimeout(function(){ setSelectedItems(function(p){ var last=p[p.length-1]; return last ? p.slice(0,-1).concat([Object.assign({},last,{tenderItemId:t.tenderItemId,areaId:t.areaId,status:t.lastStatus||'partial'})]) : p; }); },50); }, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '4px 8px', background: '#fff', borderRadius: 4, marginBottom: 3, cursor: 'pointer', fontSize: 12, border: '1px solid #e5e7eb', textAlign: 'right', fontFamily: 'inherit' } },
+            /* @__PURE__ */ React.createElement('span', null, (t.lastStatus==='partial' ? '\\uD83D\\uDD04' : '\\u23F3'), ' ', t.itemNum, ' \\u2014 ', (t.itemDesc||'').slice(0,35)),
+            /* @__PURE__ */ React.createElement('span', { style: { color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap' } }, t.totalHours > 0 ? t.totalHours+"\\u05E9'" : '', ' ', t.lastDate)
+          );
+        })
+      );
+    })
+  : openTasks.map(function(t) {
+      return /* @__PURE__ */ React.createElement('button', { key: t.tenderItemId, onClick: function(){ addItem(); setTimeout(function(){ setSelectedItems(function(p){ var last=p[p.length-1]; return last ? p.slice(0,-1).concat([Object.assign({},last,{tenderItemId:t.tenderItemId,status:t.lastStatus||'partial'})]) : p; }); },50); }, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '4px 8px', background: '#fff', borderRadius: 4, marginBottom: 3, cursor: 'pointer', fontSize: 12, border: '1px solid #e5e7eb', textAlign: 'right', fontFamily: 'inherit' } },
+        /* @__PURE__ */ React.createElement('span', null, (t.lastStatus==='partial' ? '\\uD83D\\uDD04' : '\\u23F3'), ' ', t.itemNum, ' \\u2014 ', (t.itemDesc||'').slice(0,40)),
+        /* @__PURE__ */ React.createElement('span', { style: { color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap' } }, t.totalHours > 0 ? t.totalHours+"\\u05E9'" : '', ' ', t.lastDate)
+      );
+    })
+  )
+) : null,
+selectedItems.map((item, idx) => {
     const ti = (project.tenderItems || []).find((x) => x.id === item.tenderItemId);
-    return /* @__PURE__ */ React.createElement("div", { key: item.id, style: { background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, padding: 12, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px 1fr auto", gap: 8, alignItems: "end" } }, /* @__PURE__ */ React.createElement(Field, { label: `\u05E1\u05E2\u05D9\u05E3 #${idx + 1}` }, /* @__PURE__ */ React.createElement(Select, { value: item.tenderItemId, onChange: (e) => updateItem(item.id, "tenderItemId", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05D1\u05D7\u05E8 \u05E1\u05E2\u05D9\u05E3 \u2014"), [...new Set((project.tenderItems || []).map((i) => i.cat || "\u05DB\u05DC\u05DC\u05D9"))].map((cat) => /* @__PURE__ */ React.createElement("optgroup", { key: cat, label: cat }, (project.tenderItems || []).filter((i) => (i.cat || "\u05DB\u05DC\u05DC\u05D9") === cat).map((i) => /* @__PURE__ */ React.createElement("option", { key: i.id, value: i.id }, i.num, " \u2014 ", i.desc)))))), /* @__PURE__ */ React.createElement(Field, { label: `\u05DB\u05DE\u05D5\u05EA${ti ? " (" + ti.unit + ")" : ""}` }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: item.qty, onChange: (e) => updateItem(item.id, "qty", e.target.value), placeholder: "0" })), /* @__PURE__ */ React.createElement(Field, { label: "\u05D0\u05D6\u05D5\u05E8 \u05E2\u05D1\u05D5\u05D3\u05D4" }, /* @__PURE__ */ React.createElement(Select, { value: item.areaId, onChange: (e) => updateItem(item.id, "areaId", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05DC\u05DC\u05D0 \u05D0\u05D6\u05D5\u05E8 \u2014"), project.workAreas?.map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("button", { onClick: () => delItem(item.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 20, marginTop: 18 } }, "\u2715")), ti && item.qty && getPerms(user).viewPrices && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#0369a1", marginTop: 4 } }, "\u{1F4B0} \u05E9\u05D5\u05D5\u05D9 \u05D1\u05D9\u05E6\u05D5\u05E2: ", /* @__PURE__ */ React.createElement("strong", null, "\u20AA", ((parseFloat(item.qty) || 0) * ti.price).toLocaleString())), /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA \u05DC\u05E1\u05E2\u05D9\u05E3" }, /* @__PURE__ */ React.createElement(Input, { value: item.notes, onChange: (e) => updateItem(item.id, "notes", e.target.value), placeholder: "\u05D4\u05E2\u05E8\u05D5\u05EA..." })));
+    return /* @__PURE__ */ React.createElement("div", { key: item.id, style: { background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, padding: 12, marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px 1fr auto", gap: 8, alignItems: "end" } }, /* @__PURE__ */ React.createElement(Field, { label: `\u05E1\u05E2\u05D9\u05E3 #${idx + 1}` }, /* @__PURE__ */ React.createElement(Select, { value: item.tenderItemId, onChange: (e) => updateItem(item.id, "tenderItemId", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05D1\u05D7\u05E8 \u05E1\u05E2\u05D9\u05E3 \u2014"), [...new Set((project.tenderItems || []).map((i) => i.cat || "\u05DB\u05DC\u05DC\u05D9"))].map((cat) => /* @__PURE__ */ React.createElement("optgroup", { key: cat, label: cat }, (project.tenderItems || []).filter((i) => (i.cat || "\u05DB\u05DC\u05DC\u05D9") === cat).map((i) => /* @__PURE__ */ React.createElement("option", { key: i.id, value: i.id }, i.num, " \u2014 ", i.desc)))))), /* @__PURE__ */ React.createElement(Field, { label: `\u05DB\u05DE\u05D5\u05EA${ti ? " (" + ti.unit + ")" : ""}` }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: item.qty, onChange: (e) => updateItem(item.id, "qty", e.target.value), placeholder: "0" })), /* @__PURE__ */ React.createElement(Field, { label: "\u05D0\u05D6\u05D5\u05E8 \u05E2\u05D1\u05D5\u05D3\u05D4" }, /* @__PURE__ */ React.createElement(Select, { value: item.areaId, onChange: (e) => updateItem(item.id, "areaId", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05DC\u05DC\u05D0 \u05D0\u05D6\u05D5\u05E8 \u2014"), project.workAreas?.map((a) => /* @__PURE__ */ React.createElement("option", { key: a.id, value: a.id }, a.name)))), /* @__PURE__ */ React.createElement("button", { onClick: () => delItem(item.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 20, marginTop: 18 } }, "\u2715")), ti && item.qty && getPerms(user).viewPrices && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#0369a1", marginTop: 4 } }, "\u{1F4B0} \u05E9\u05D5\u05D5\u05D9 \u05D1\u05D9\u05E6\u05D5\u05E2: ", /* @__PURE__ */ React.createElement("strong", null, "\u20AA", ((parseFloat(item.qty) || 0) * ti.price).toLocaleString())), /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA \u05DC\u05E1\u05E2\u05D9\u05E3" }, /* @__PURE__ */ React.createElement(Input, { value: item.notes, onChange: (e) => updateItem(item.id, "notes", e.target.value), placeholder: "\u05D4\u05E2\u05E8\u05D5\u05EA..." }))),
+    /* Status + Hours + Workers row */
+    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 80px 80px", gap: 8, marginTop: 8 } },
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D8\u05D0\u05D8\u05D5\u05E1 \u05D1\u05D9\u05E6\u05D5\u05E2" },
+        /* @__PURE__ */ React.createElement(Select, { value: item.status || "completed", onChange: (e) => updateItem(item.id, "status", e.target.value), style: { padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, fontFamily: "inherit", background: item.status === "completed" ? "#d1fae5" : item.status === "in_progress" ? "#fef3c7" : "#eff6ff" } },
+          /* @__PURE__ */ React.createElement("option", { value: "completed" }, "\u2705 \u05D4\u05D5\u05E9\u05DC\u05DD"),
+          /* @__PURE__ */ React.createElement("option", { value: "partial" }, "\uD83D\uDD04 \u05D7\u05DC\u05E7\u05D9"),
+          /* @__PURE__ */ React.createElement("option", { value: "in_progress" }, "\u23F3 \u05D1\u05EA\u05D4\u05DC\u05D9\u05DB\u05D5\u05DF")
+        )
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05E2\u05D5\u05EA" },
+        /* @__PURE__ */ React.createElement(Input, { type: "number", value: item.hours || "", onChange: (e) => updateItem(item.id, "hours", e.target.value), placeholder: "0", min: 0 })
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D5\u05D1\u05D3\u05D9\u05DD" },
+        /* @__PURE__ */ React.createElement(Input, { type: "number", value: item.workerCount || 1, onChange: (e) => updateItem(item.id, "workerCount", e.target.value), placeholder: "1", min: 1 })
+      )
+    );
   }), selectedItems.length && getPerms(user).viewPrices && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "left", padding: "10px 0", color: "#374151", fontSize: 14 } }, '\u05E1\u05D4"\u05DB \u05E9\u05D5\u05D5\u05D9 \u05D1\u05D9\u05E6\u05D5\u05E2 \u05D9\u05D5\u05DE\u05D9: ', /* @__PURE__ */ React.createElement("strong", { style: { color: "#2563eb", fontSize: 16 } }, "\u20AA", selectedItems.reduce((s, i) => {
     const ti = (project.tenderItems || []).find((x) => x.id === i.tenderItemId);
     return s + (parseFloat(i.qty) || 0) * (ti?.price || 0);
@@ -998,14 +1075,15 @@ function WorkLogHistory({ user }) {
 function Invoices({ user }) {
   const [tab, setTab] = useState("new");
   const [invoices, setInvoices] = useState([]);
+  const [editInvoice, setEditInvoice] = useState(null);
   useEffect(() => {
     (async () => setInvoices(await db.get("invoices") || []))();
   }, []);
   const refreshInvoices = async () => setInvoices(await db.get("invoices") || []);
   const tabStyle = (t) => ({ padding: "10px 18px", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: tab === t ? 700 : 400, color: tab === t ? "#2563eb" : "#6b7280", background: "none", borderBottom: tab === t ? "2px solid #2563eb" : "2px solid transparent" });
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F9FE} \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA"), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "1px solid #e5e7eb", marginBottom: 20, display: "flex", gap: 0 } }, /* @__PURE__ */ React.createElement("button", { style: tabStyle("new"), onClick: () => setTab("new") }, "\u{1F4DD} \u05D4\u05E4\u05E7\u05EA \u05D7\u05E9\u05D1\u05D5\u05DF"), /* @__PURE__ */ React.createElement("button", { style: tabStyle("history"), onClick: () => setTab("history") }, "\u{1F4CB} \u05D4\u05D9\u05E1\u05D8\u05D5\u05E8\u05D9\u05D9\u05EA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA (", invoices.length, ")")), tab === "new" && /* @__PURE__ */ React.createElement(InvoicePreparation, { onSaved: refreshInvoices }), tab === "history" && /* @__PURE__ */ React.createElement(InvoiceHistory, { invoices, onRefresh: refreshInvoices }));
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F9FE} \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA"), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "1px solid #e5e7eb", marginBottom: 20, display: "flex", gap: 0 } }, /* @__PURE__ */ React.createElement("button", { style: tabStyle("new"), onClick: () => setTab("new") }, "\u{1F4DD} \u05D4\u05E4\u05E7\u05EA \u05D7\u05E9\u05D1\u05D5\u05DF"), /* @__PURE__ */ React.createElement("button", { style: tabStyle("history"), onClick: () => setTab("history") }, "\u{1F4CB} \u05D4\u05D9\u05E1\u05D8\u05D5\u05E8\u05D9\u05D9\u05EA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA (", invoices.length, ")")), tab === "new" && /* @__PURE__ */ React.createElement(InvoicePreparation, { onSaved: function(){ setEditInvoice(null); refreshInvoices(); }, editInvoice: editInvoice }), tab === "history" && /* @__PURE__ */ React.createElement(InvoiceHistory, { invoices, onRefresh: refreshInvoices, onEdit: function(inv){ setEditInvoice(inv); setTab("new"); } }));
 }
-function InvoicePreparation({ onSaved }) {
+function InvoicePreparation({ onSaved, editInvoice }) {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState("");
   const [project, setProject] = useState(null);
@@ -1020,6 +1098,29 @@ function InvoicePreparation({ onSaved }) {
   const [invoiceNum, setInvoiceNum] = useState("");
   const [saved, setSaved] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [invoiceStatus, setInvoiceStatus] = useState("draft");
+  const [isFinal, setIsFinal] = useState(false);
+  const [deductionRows, setDeductionRows] = useState([]);
+  const [deductibleExpenses, setDeductibleExpenses] = useState([]);
+  const [editId, setEditId] = useState(null);
+  // Load existing invoice for editing
+  useEffect(() => {
+    if (!editInvoice) return;
+    setEditId(editInvoice.id);
+    setProjectId(editInvoice.projectId);
+    setStartDate(editInvoice.startDate);
+    setEndDate(editInvoice.endDate);
+    setInvoiceNum(editInvoice.invoiceNum||"");
+    setInvoiceStatus(editInvoice.status||"draft");
+    setIsFinal(!!editInvoice.isFinal);
+    // Rows loaded from saved items
+    if (editInvoice.items && editInvoice.items.length > 0) {
+      setRows(editInvoice.items.map(function(it){
+        return { tenderItemId: it.tenderItemId, itemNum: it.itemNum, itemDesc: it.itemDesc, unit: it.unit, unitPrice: it.unitPrice, cat: it.cat||"\u05DB\u05DC\u05DC\u05D9", contractQty: it.contractQty||0, prevApprovedQty: it.prevApprovedQty||0, periodQty: it.periodQty, approvalPct: it.approvalPct };
+      }));
+      setGenerated(true);
+    }
+  }, [editInvoice]);
   useEffect(() => {
     (async () => setProjects(await db.get("projects") || []))();
   }, []);
@@ -1033,6 +1134,21 @@ function InvoicePreparation({ onSaved }) {
     setProject(projects.find((p) => p.id === projectId) || null);
     setRows([]);
     setGenerated(false);
+    // Auto-populate startDate from last invoice
+    (async function() {
+      var allInv = await db.get("invoices") || [];
+      var projInvs = allInv.filter(function(i){ return i.projectId === projectId; });
+      if (projInvs.length > 0) {
+        var lastInv = projInvs.sort(function(a,b){ return (b.endDate||"").localeCompare(a.endDate||""); })[0];
+        if (lastInv.endDate) {
+          var d = new Date(lastInv.endDate);
+          d.setDate(d.getDate() + 1);
+          setStartDate(d.toISOString().slice(0,10));
+        }
+      } else {
+        setStartDate("");
+      }
+    })();
   }, [projectId, projects]);
   const buildSummary = async () => {
     if (!projectId || !startDate || !endDate || !project) return;
@@ -1090,6 +1206,11 @@ function InvoicePreparation({ onSaved }) {
     });
     newRows.sort((a, b) => a.cat.localeCompare(b.cat) || a.itemNum.localeCompare(b.itemNum));
     setRows(newRows);
+    // Load deductible expenses
+    var allExp = await db.get("expenses") || [];
+    var projExp = allExp.filter(function(e){ return e.projectId === projectId && e.forDeduction; });
+    setDeductibleExpenses(projExp);
+    setDeductionRows(projExp.map(function(e){ return { expenseId: e.id, desc: e.desc, totalAmount: e.amount, totalDeducted: e.totalDeducted||0, deductNow: 0 }; }));
     setGenerated(true);
     setLoading(false);
   };
@@ -1110,8 +1231,13 @@ function InvoicePreparation({ onSaved }) {
   const subtotal = enriched.reduce((s, r) => s + r.periodAmount, 0);
   const retention = subtotal * ((project?.retentionPct || 0) / 100);
   const afterRetention = subtotal - retention;
-  const vat = afterRetention * ((project?.vatPct || 0) / 100);
-  const total = afterRetention + vat;
+  const totalDeductionsNow = deductionRows.reduce(function(s,d){ return s + (parseFloat(d.deductNow)||0); }, 0);
+  // Final invoice: add back all previously withheld retention
+  const allInvForRetention = prevInvoices.reduce(function(s,inv){ return s + (inv.retention||0); }, 0);
+  const retentionRelease = isFinal ? allInvForRetention + retention : 0;
+  const afterDeductions = afterRetention - totalDeductionsNow;
+  const vat = afterDeductions * ((project?.vatPct || 0) / 100);
+  const total = afterDeductions + vat + retentionRelease;
   const totalCumulativeAmount = enriched.reduce((s, r) => s + r.cumulativeAmount, 0);
   const cats = [...new Set(enriched.map((r) => r.cat))];
   const saveInvoice = async () => {
@@ -1134,23 +1260,42 @@ function InvoicePreparation({ onSaved }) {
       periodAmount: r.periodAmount,
       cumulativeAmount: r.cumulativeAmount
     }));
-    await db.set("invoices", [...allInvoices, {
-      id: genId(),
+    const newInvId = editId || genId();
+    const invObj = {
+      id: newInvId,
       projectId,
       projectName: project.name,
       invoiceNum: invoiceNum.trim(),
       startDate,
       endDate,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      createdAt: editId ? (editInvoice?.createdAt || new Date().toISOString().slice(0,10)) : new Date().toISOString().slice(0,10),
+      updatedAt: new Date().toISOString().slice(0,10),
+      status: invoiceStatus,
+      isFinal,
       subtotal,
       retention,
+      retentionRelease,
+      totalDeductionsNow,
       vat,
       total,
       totalCumulativeAmount,
       totalWorkerCost,
       items,
+      deductions: deductionRows.filter(function(d){ return (parseFloat(d.deductNow)||0) > 0; }).map(function(d){ return { expenseId: d.expenseId, desc: d.desc, deductNow: parseFloat(d.deductNow)||0 }; }),
       prevInvoiceCount: prevInvoices.length
-    }]);
+    };
+    await db.set("invoices", editId
+      ? allInvoices.map(function(i){ return i.id === editId ? invObj : i; })
+      : [...allInvoices, invObj]
+    );
+    // Update totalDeducted on expenses
+    var allExpenses = await db.get("expenses") || [];
+    var updatedExp = allExpenses.map(function(e) {
+      var dr = deductionRows.find(function(d){ return d.expenseId === e.id; });
+      if (!dr || !(parseFloat(dr.deductNow) > 0)) return e;
+      return Object.assign({}, e, { totalDeducted: (e.totalDeducted||0) + (parseFloat(dr.deductNow)||0) });
+    });
+    await db.set("expenses", updatedExp);
     setSaved(true);
     setSaving(false);
     setTimeout(() => setSaved(false), 3500);
@@ -1201,10 +1346,47 @@ function InvoicePreparation({ onSaved }) {
     { label: "\u05DC\u05D0\u05D7\u05E8 \u05E2\u05D9\u05DB\u05D1\u05D5\u05DF", value: afterRetention, color: "#374151" },
     { label: `\u05DE\u05E2"\u05DE (${project?.vatPct || 0}%)`, value: vat, color: "#7c3aed" },
     { label: '\u05E1\u05D4"\u05DB \u05DC\u05EA\u05E9\u05DC\u05D5\u05DD', value: total, color: "#059669", big: true }
-  ].map((row, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: row.big ? "#f0fdf4" : "transparent", border: row.big ? "2px solid #bbf7d0" : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, color: row.color, fontWeight: row.big ? 700 : 400 } }, row.label), /* @__PURE__ */ React.createElement("span", { style: { fontSize: row.big ? 20 : 14, fontWeight: 800, color: row.color } }, row.value < 0 ? "\u2212" : "", " \u20AA", fmt(Math.abs(row.value))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, padding: "10px", background: "#ede9fe", borderRadius: 8, border: "1px solid #c4b5fd" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#7c3aed", fontWeight: 600 } }, '\u{1F4CA} \u05E1\u05D4"\u05DB \u05DE\u05E6\u05D8\u05D1\u05E8 (\u05DB\u05DC \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA)'), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 22, fontWeight: 800, color: "#7c3aed", marginTop: 2 } }, "\u20AA", fmt(totalCumulativeAmount))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4BC} \u05E2\u05DC\u05D5\u05D9\u05D5\u05EA + \u05E8\u05D5\u05D5\u05D7\u05D9\u05D5\u05EA"), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "8px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800, color: "#d97706" } }, "\u20AA", fmt(totalWorkerCost)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#6b7280", marginTop: 2 } }, "\u05E2\u05DC\u05D5\u05EA \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05D1\u05EA\u05E7\u05D5\u05E4\u05D4")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: 12, background: "#f0fdf4", borderRadius: 8, textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, "\u05DE\u05E8\u05D5\u05D5\u05D7 \u05D2\u05D5\u05DC\u05DE\u05D9"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: subtotal - totalWorkerCost > 0 ? "#059669" : "#dc2626" } }, "\u20AA", fmt(subtotal - totalWorkerCost))), /* @__PURE__ */ React.createElement("div", { style: { padding: 12, background: "#eff6ff", borderRadius: 8, textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, "% \u05DE\u05E8\u05D5\u05D5\u05D7"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: "#2563eb" } }, subtotal > 0 ? Math.round((1 - totalWorkerCost / subtotal) * 100) : 0, "%"))))), /* @__PURE__ */ React.createElement(Card, { style: { background: "#f8fafc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E1\u05E4\u05E8 \u05D7\u05E9\u05D1\u05D5\u05DF", required: true }, /* @__PURE__ */ React.createElement(Input, { value: invoiceNum, onChange: (e) => setInvoiceNum(e.target.value), placeholder: "\u05DC\u05DE\u05E9\u05DC: \u05D7\u05E9\u05D1\u05D5\u05DF 003", style: { maxWidth: 240 } })), /* @__PURE__ */ React.createElement("div", { style: { paddingBottom: 1 } }, /* @__PURE__ */ React.createElement(Btn, { size: "lg", onClick: saveInvoice, disabled: saving || !invoiceNum.trim(), variant: "success" }, saving ? "\u05E9\u05D5\u05DE\u05E8..." : "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8 \u05D7\u05E9\u05D1\u05D5\u05DF (\u05DB\u05D5\u05DC\u05DC % \u05D0\u05D9\u05E9\u05D5\u05E8\u05D9\u05DD)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#6b7280", paddingBottom: 4 } }, "\u26A0\uFE0F \u05D5\u05D5\u05D3\u05D0 \u05E9\u05D4\u05D6\u05E0\u05EA % \u05D0\u05D9\u05E9\u05D5\u05E8\u05D9 \u05E4\u05D9\u05E7\u05D5\u05D7 \u05DC\u05E4\u05E0\u05D9 \u05D4\u05E9\u05DE\u05D9\u05E8\u05D4")))));
+  ].map((row, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: row.big ? "#f0fdf4" : "transparent", border: row.big ? "2px solid #bbf7d0" : "none" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, color: row.color, fontWeight: row.big ? 700 : 400 } }, row.label), /* @__PURE__ */ React.createElement("span", { style: { fontSize: row.big ? 20 : 14, fontWeight: 800, color: row.color } }, row.value < 0 ? "\u2212" : "", " \u20AA", fmt(Math.abs(row.value))))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, padding: "10px", background: "#ede9fe", borderRadius: 8, border: "1px solid #c4b5fd" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#7c3aed", fontWeight: 600 } }, '\u{1F4CA} \u05E1\u05D4"\u05DB \u05DE\u05E6\u05D8\u05D1\u05E8 (\u05DB\u05DC \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA)'), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 22, fontWeight: 800, color: "#7c3aed", marginTop: 2 } }, "\u20AA", fmt(totalCumulativeAmount))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4BC} \u05E2\u05DC\u05D5\u05D9\u05D5\u05EA + \u05E8\u05D5\u05D5\u05D7\u05D9\u05D5\u05EA"), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "8px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800, color: "#d97706" } }, "\u20AA", fmt(totalWorkerCost)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#6b7280", marginTop: 2 } }, "\u05E2\u05DC\u05D5\u05EA \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05D1\u05EA\u05E7\u05D5\u05E4\u05D4")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { padding: 12, background: "#f0fdf4", borderRadius: 8, textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, "\u05DE\u05E8\u05D5\u05D5\u05D7 \u05D2\u05D5\u05DC\u05DE\u05D9"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: subtotal - totalWorkerCost > 0 ? "#059669" : "#dc2626" } }, "\u20AA", fmt(subtotal - totalWorkerCost))), /* @__PURE__ */ React.createElement("div", { style: { padding: 12, background: "#eff6ff", borderRadius: 8, textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, "% \u05DE\u05E8\u05D5\u05D5\u05D7"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: "#2563eb" } }, subtotal > 0 ? Math.round((1 - totalWorkerCost / subtotal) * 100) : 0, "%"))))), editId ? /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "8px 14px", marginBottom: 10, fontSize: 13, color: "#2563eb", fontWeight: 600 } }, "\u270F\uFE0F \u05DE\u05E6\u05D1 \u05E2\u05E8\u05D9\u05DB\u05D4 \u2014 \u05E9\u05E0\u05D4 \u05D0\u05D7\u05D5\u05D6 \u05D0\u05D9\u05E9\u05D5\u05E8 \u05D5\u05E9\u05DE\u05D5\u05E8") : null,
+/* Status + isFinal + Deductions Panel */
+generated ? /* @__PURE__ */ React.createElement("div", { style: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, marginBottom: 14 } },
+  /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: deductibleExpenses.length > 0 ? 12 : 0 } },
+    /* @__PURE__ */ React.createElement("label", { style: { fontSize: 12, fontWeight: 700, color: "#374151" } }, "\\u05E1\\u05D8\\u05D0\\u05D8\\u05D5\\u05E1:"),
+    /* @__PURE__ */ React.createElement("select", { value: invoiceStatus, onChange: function(e){ setInvoiceStatus(e.target.value); }, style: { padding: "4px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, fontFamily: "inherit" } },
+      /* @__PURE__ */ React.createElement("option", { value: "draft" }, "\\uD83D\\uDCDD \\u05D8\\u05D9\\u05D5\\u05D8\\u05D0"),
+      /* @__PURE__ */ React.createElement("option", { value: "submitted" }, "\\uD83D\\uDCE4 \\u05D4\\u05D5\\u05D2\\u05E9 \\u05DC\\u05E4\\u05D9\\u05E7\\u05D5\\u05D7"),
+      /* @__PURE__ */ React.createElement("option", { value: "approved" }, "\\u2705 \\u05DE\\u05D0\\u05D5\\u05E9\\u05E8"),
+      /* @__PURE__ */ React.createElement("option", { value: "corrected" }, "\\uD83D\\uDD04 \\u05DE\\u05EA\\u05D5\\u05E7\\u05DF"),
+      /* @__PURE__ */ React.createElement("option", { value: "final" }, "\\uD83C\\uDFC1 \\u05E1\\u05D5\\u05E4\\u05D9")
+    ),
+    /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, fontWeight: isFinal ? 700 : 400, color: isFinal ? "#059669" : "#374151" } },
+      /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: isFinal, onChange: function(e){ setIsFinal(e.target.checked); } }),
+      "\\uD83C\\uDFC1 \\u05D7\\u05E9\\u05D1\\u05D5\\u05DF \\u05E1\\u05D5\\u05E4\\u05D9 (\\u05E9\\u05D7\\u05E8\\u05D5\\u05E8 \\u05E2\\u05D9\\u05DB\\u05D1\\u05D5\\u05DF)"
+    )
+  ),
+  deductibleExpenses.length > 0 ? /* @__PURE__ */ React.createElement("div", null,
+    /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: "#374151", marginBottom: 8, borderTop: "1px solid #e5e7eb", paddingTop: 10 } }, "\\u05E7\\u05D9\\u05D6\\u05D5\\u05D6 \\u05D7\\u05D5\\u05DE\\u05E8\\u05D9\\u05DD (\\u05DB\\u05D5\\u05D7 \\u05E7\\u05E0\\u05D9\\u05D9\\u05D4):"),
+    deductionRows.map(function(dr, di) {
+      var balance = (dr.totalAmount || 0) - (dr.totalDeducted || 0);
+      return /* @__PURE__ */ React.createElement("div", { key: dr.expenseId, style: { display: "grid", gridTemplateColumns: "1fr 110px 100px 90px", gap: 8, alignItems: "center", marginBottom: 6 } },
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, dr.desc),
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#6b7280" } }, "\\u05D9\\u05EA\\u05E8\\u05D4: \\u20AA", balance.toLocaleString("he-IL")),
+        /* @__PURE__ */ React.createElement("input", { type: "number", value: dr.deductNow || "", min: 0, max: balance, placeholder: "\\u05E1\\u05DB\\u05D5\\u05DD \\u05DC\\u05E7\\u05D9\\u05D6\\u05D5\\u05D6", onChange: function(e) { var v = Math.min(parseFloat(e.target.value)||0, balance); setDeductionRows(function(prev){ return prev.map(function(r,i){ return i===di ? Object.assign({},r,{deductNow:v}) : r; }); }); }, style: { padding: "4px 6px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 12, fontFamily: "inherit" } }),
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#059669", fontWeight: 700 } }, parseFloat(dr.deductNow) > 0 ? ("\\u20AA" + (parseFloat(dr.deductNow)||0).toLocaleString("he-IL")) : "\\u2014")
+      );
+    })
+  ) : null
+) : null,
+/* @__PURE__ */ React.createElement(Card, { style: { background: "#f8fafc" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E1\u05E4\u05E8 \u05D7\u05E9\u05D1\u05D5\u05DF", required: true }, /* @__PURE__ */ React.createElement(Input, { value: invoiceNum, onChange: (e) => setInvoiceNum(e.target.value), placeholder: "\u05DC\u05DE\u05E9\u05DC: \u05D7\u05E9\u05D1\u05D5\u05DF 003", style: { maxWidth: 240 } })), /* @__PURE__ */ React.createElement("div", { style: { paddingBottom: 1 } }, /* @__PURE__ */ React.createElement(Btn, { size: "lg", onClick: saveInvoice, disabled: saving || !invoiceNum.trim(), variant: "success" }, saving ? "\u05E9\u05D5\u05DE\u05E8..." : editId ? "\u{1F4BE} \u05E2\u05D3\u05DB\u05DF \u05D7\u05E9\u05D1\u05D5\u05DF" : "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8 \u05D7\u05E9\u05D1\u05D5\u05DF")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#6b7280", paddingBottom: 4 } }, "\u26A0\uFE0F \u05D5\u05D5\u05D3\u05D0 \u05E9\u05D4\u05D6\u05E0\u05EA % \u05D0\u05D9\u05E9\u05D5\u05E8\u05D9 \u05E4\u05D9\u05E7\u05D5\u05D7 \u05DC\u05E4\u05E0\u05D9 \u05D4\u05E9\u05DE\u05D9\u05E8\u05D4")))));
 }
-function InvoiceHistory({ invoices, onRefresh }) {
+function InvoiceHistory({ invoices, onRefresh, onEdit }) {
   const [expanded, setExpanded] = useState(null);
+  const STATUS_LABELS = { draft: "\uD83D\uDCDD \u05D8\u05D9\u05D5\u05D8\u05D0", submitted: "\uD83D\uDCE4 \u05D4\u05D5\u05D2\u05E9", approved: "\u2705 \u05DE\u05D0\u05D5\u05E9\u05E8", corrected: "\uD83D\uDD04 \u05DE\u05EA\u05D5\u05E7\u05DF", final: "\uD83C\uDFC1 \u05E1\u05D5\u05E4\u05D9" };
+  const STATUS_COLORS = { draft: "#6b7280", submitted: "#2563eb", approved: "#059669", corrected: "#d97706", final: "#7c3aed" };
+  const updateStatus = async (id, newStatus) => {
+    var all = await db.get("invoices") || [];
+    await db.set("invoices", all.map(function(i){ return i.id === id ? Object.assign({},i,{status:newStatus,updatedAt:new Date().toISOString().slice(0,10)}) : i; }));
+    onRefresh();
+  };
   const del = async (id) => {
     if (!confirm("\u05DC\u05DE\u05D7\u05D5\u05E7 \u05D7\u05E9\u05D1\u05D5\u05DF? \u05E9\u05D9\u05DD \u05DC\u05D1 \u2014 \u05DE\u05D7\u05D9\u05E7\u05D4 \u05EA\u05E9\u05E4\u05D9\u05E2 \u05E2\u05DC \u05D7\u05D9\u05E9\u05D5\u05D1 \u05D4\u05DE\u05E6\u05D8\u05D1\u05E8 \u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E2\u05EA\u05D9\u05D3\u05D9\u05D9\u05DD!")) return;
     const all = await db.get("invoices") || [];
@@ -1222,7 +1404,11 @@ function InvoiceHistory({ invoices, onRefresh }) {
     /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15, color: "#111" } }, inv.invoiceNum), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginTop: 2 } }, inv.projectName, " \xB7 ", inv.startDate, " \u2013 ", inv.endDate, inv.prevInvoiceCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed" } }, " \xB7 ", inv.prevInvoiceCount, " \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD"))),
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#2563eb", small: true }, "\u05EA\u05E7\u05D5\u05E4\u05D4: \u20AA", fmt(inv.subtotal)), inv.totalCumulativeAmount > 0 && /* @__PURE__ */ React.createElement(Badge, { color: "#7c3aed", small: true }, "\u05DE\u05E6\u05D8\u05D1\u05E8: \u20AA", fmt(inv.totalCumulativeAmount)), /* @__PURE__ */ React.createElement(Badge, { color: "#059669", small: true }, "\u05DC\u05EA\u05E9\u05DC\u05D5\u05DD: \u20AA", fmt(inv.total))),
     /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#9ca3af" } }, inv.createdAt),
-    /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+    /* Status badge */
+inv.status ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, padding: "2px 7px", borderRadius: 4, background: (STATUS_COLORS[inv.status]||"#6b7280")+"22", color: STATUS_COLORS[inv.status]||"#6b7280", fontWeight: 600, whiteSpace: "nowrap" } }, STATUS_LABELS[inv.status]||inv.status) : null,
+/* Edit button */
+onEdit ? /* @__PURE__ */ React.createElement("button", { onClick: function(e){ e.stopPropagation(); onEdit(inv); }, style: { fontSize: 11, padding: "3px 8px", background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 4, cursor: "pointer", fontWeight: 600 } }, "\u270F\uFE0F \u05E2\u05E8\u05D5\u05DA") : null,
+/* @__PURE__ */ React.createElement("button", { onClick: (e) => {
       e.stopPropagation();
       del(inv.id);
     }, style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626" } }, "\u{1F5D1}\uFE0F"),
@@ -1374,7 +1560,7 @@ const EXP_CATS = {
 function ProjectExpenses({ projectId }) {
   const [expenses, setExpenses] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), cat: "other", desc: "", amount: "", notes: "", receiptFile: null, receiptName: "" });
+  const [form, setForm] = useState({ date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), cat: "other", desc: "", amount: "", notes: "", receiptFile: null, receiptName: "", forDeduction: false });
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const load = async () => {
@@ -1388,8 +1574,8 @@ function ProjectExpenses({ projectId }) {
     if (!form.desc || !form.amount) return;
     setSaving(true);
     const all = await db.get("expenses") || [];
-    await db.set("expenses", [...all, { ...form, id: genId(), projectId, amount: parseFloat(form.amount) || 0, receiptFile: form.receiptFile||null, receiptName: form.receiptName||"" }]);
-    setForm({ date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), cat: "other", desc: "", amount: "", notes: "", receiptFile: null, receiptName: "" });
+    await db.set("expenses", [...all, { ...form, id: genId(), projectId, amount: parseFloat(form.amount) || 0, receiptFile: form.receiptFile||null, receiptName: form.receiptName||"", forDeduction: form.forDeduction||false, totalDeducted: 0 }]);
+    setForm({ date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), cat: "other", desc: "", amount: "", notes: "", receiptFile: null, receiptName: "", forDeduction: false });
     setShowForm(false);
     setSaving(false);
     load();
@@ -1402,6 +1588,10 @@ function ProjectExpenses({ projectId }) {
   };
   const total = expenses.reduce((s, e) => s + e.amount, 0);
   return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F4B8} \u05D4\u05D5\u05E6\u05D0\u05D5\u05EA \u05E0\u05DC\u05D5\u05D5\u05EA"), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: () => setShowForm(!showForm) }, "+ \u05D4\u05D5\u05E1\u05E3 \u05D4\u05D5\u05E6\u05D0\u05D4")), showForm && /* @__PURE__ */ React.createElement("div", { style: { background: "#f8fafc", borderRadius: 8, padding: 14, marginBottom: 14, border: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: form.date, onChange: (e) => setForm({ ...form, date: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4" }, /* @__PURE__ */ React.createElement(Select, { value: form.cat, onChange: (e) => setForm({ ...form, cat: e.target.value }) }, Object.entries(EXP_CATS).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v)))), /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05DB\u05D5\u05DD \u20AA *" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.amount, onChange: (e) => setForm({ ...form, amount: e.target.value }) }))), /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D9\u05D0\u05D5\u05E8 *" }, /* @__PURE__ */ React.createElement(Input, { value: form.desc, onChange: (e) => setForm({ ...form, desc: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" }, /* @__PURE__ */ React.createElement(Input, { value: form.notes, onChange: (e) => setForm({ ...form, notes: e.target.value }) })),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 4 } },
+      /* @__PURE__ */ React.createElement("input", { type: "checkbox", id: "exp_deduction", checked: !!form.forDeduction, onChange: (e) => setForm({ ...form, forDeduction: e.target.checked }), style: { width: 16, height: 16, cursor: "pointer" } }),
+      /* @__PURE__ */ React.createElement("label", { htmlFor: "exp_deduction", style: { fontSize: 13, cursor: "pointer", color: form.forDeduction ? "#059669" : "#374151", fontWeight: form.forDeduction ? 700 : 400 } }, "\u2705 \u05D4\u05D5\u05E6\u05D0\u05D4 \u05DC\u05E7\u05D9\u05D6\u05D5\u05D6 (\u05DB\u05D5\u05D7 \u05E7\u05E0\u05D9\u05D9\u05D4)")
+    ),
     /* @__PURE__ */ React.createElement(Field, { label: "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA/\u05E7\u05D1\u05DC\u05D4 (\u05E7\u05D5\u05D1\u05E5)" },
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
         /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, cursor: "pointer", fontSize: 12, color: "#2563eb", fontWeight: 600 } },
@@ -1424,7 +1614,11 @@ function ProjectExpenses({ projectId }) {
         form.receiptName ? /* @__PURE__ */ React.createElement("button", { onClick: function() { setForm(function(f) { return Object.assign({}, f, { receiptFile: null, receiptName: "" }); }); }, style: { background: "none", border: "none", color: "#dc2626", cursor: "pointer", fontSize: 14 } }, "\u2715") : null
       )
     ),
-    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: () => setShowForm(false) }, "\u05D1\u05D9\u05D8\u05D5\u05DC"), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: save, disabled: saving }, "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8"))), expenses.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05D4\u05D5\u05E6\u05D0\u05D5\u05EA \u05E0\u05DC\u05D5\u05D5\u05EA") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb" } }, ["\u05EA\u05D0\u05E8\u05D9\u05DA", "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4", "\u05EA\u05D9\u05D0\u05D5\u05E8", "\u05E1\u05DB\u05D5\u05DD", "\u05D4\u05E2\u05E8\u05D5\u05EA", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 11, fontWeight: 600 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, expenses.sort((a, b) => b.date.localeCompare(a.date)).map((e) => /* @__PURE__ */ React.createElement("tr", { key: e.id, style: { borderBottom: "1px solid #f3f4f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, e.date), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#6b7280", small: true }, EXP_CATS[e.cat] || e.cat)), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, e.desc), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", fontWeight: 700, color: "#dc2626" } }, "\u20AA", e.amount.toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", color: "#6b7280", fontSize: 12 } }, e.notes || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } },
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: () => setShowForm(false) }, "\u05D1\u05D9\u05D8\u05D5\u05DC"), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: save, disabled: saving }, "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8"))), expenses.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05D4\u05D5\u05E6\u05D0\u05D5\u05EA \u05E0\u05DC\u05D5\u05D5\u05EA") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb" } }, ["\u05EA\u05D0\u05E8\u05D9\u05DA", "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4", "\u05EA\u05D9\u05D0\u05D5\u05E8", "\u05E1\u05DB\u05D5\u05DD", "\u05DC\u05E7\u05D9\u05D6\u05D5\u05D6", "\u05E7\u05D5\u05D6\u05D6 \u05E2\u05D3 \u05DB\u05D4", "\u05D9\u05EA\u05E8\u05D4", "\u05D4\u05E2\u05E8\u05D5\u05EA", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 11, fontWeight: 600 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, expenses.sort((a, b) => b.date.localeCompare(a.date)).map((e) => /* @__PURE__ */ React.createElement("tr", { key: e.id, style: { borderBottom: "1px solid #f3f4f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, e.date), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#6b7280", small: true }, EXP_CATS[e.cat] || e.cat)), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, e.desc), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", fontWeight: 700, color: "#dc2626" } }, "\u20AA", e.amount.toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", color: "#6b7280", fontSize: 12 } }, e.notes || "\\u2014"),
+              /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "center" } }, e.forDeduction ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, background: "#d1fae5", color: "#065f46", borderRadius: 4, padding: "2px 6px", fontWeight: 600 } }, "\\u2705 \\u05DC\\u05E7\\u05D9\\u05D6\\u05D5\\u05D6") : /* @__PURE__ */ React.createElement("span", { style: { color: "#d1d5db" } }, "\\u2014")),
+              /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", color: "#d97706", fontSize: 12 } }, e.forDeduction ? "\\u20AA" + (e.totalDeducted || 0).toLocaleString("he-IL") : "\\u2014"),
+              /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", fontWeight: e.forDeduction ? 700 : 400, color: e.forDeduction ? "#059669" : "#9ca3af", fontSize: 12 } }, e.forDeduction ? "\\u20AA" + ((e.amount || 0) - (e.totalDeducted || 0)).toLocaleString("he-IL") : "\\u2014"),
+              /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } },
               e.receiptFile ? /* @__PURE__ */ React.createElement("a", {
                 href: e.receiptFile, download: e.receiptName||"\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA",
                 target: "_blank",
