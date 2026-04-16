@@ -2357,6 +2357,8 @@ function BOQMode(props) {
   const [showDakalPanel, setShowDakalPanel] = React.useState(false);
   const [expandedMaterials, setExpandedMaterials] = React.useState({});
   const toggleMaterials = function(lineId) { setExpandedMaterials(function(p){ return Object.assign({}, p, { [lineId]: !p[lineId] }); }); };
+  const [dakalSearch, setDakalSearch] = React.useState({});
+  const setLineSearch = function(lineId, val) { setDakalSearch(function(p){ return Object.assign({}, p, { [lineId]: val }); }); };
   React.useEffect(function(){(async function(){var s=await db.get("business_settings");if(s)setBizSettings(s);})();}, []);
   var liftEq = (bizSettings&&bizSettings.liftingEquipment)||[
     {id:"crane",name:"מנוף",costPerDay:3500,costPerHour:450},
@@ -2822,24 +2824,25 @@ function BOQMode(props) {
     onClick: function() { toggleMaterials(line.id); },
     title: "לחץ לראות פירוט",
     style: { fontSize: 10, color: "#059669", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }
-  }, expandedMaterials[line.id] ? "\u25B2" : "\u25BC", " חומר: \\u20AA", fmt3(line.ai.matCostPerUnit)),
+  }, expandedMaterials[line.id] ? "\u25B2" : "\u25BC", " חומר: \u20AA", fmt3(line.ai.matCostPerUnit)),
   expandedMaterials[line.id] && line.ai.materials && line.ai.materials.length > 0 ?
     /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 4, padding: "6px 8px", fontSize: 10, position: "absolute", zIndex: 20, minWidth: 240, boxShadow: "0 2px 8px #0001" } },
       /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#15803d", marginBottom: 4, borderBottom: "1px solid #86efac", paddingBottom: 2 } }, "פירוט חומרים ליחידה:"),
       /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
         /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
-          ["שם", "כמות", "מחיר", "סה\"\u05DB"].map(function(h) {
+          ["שם", "כמות", "מחיר", "סה\"כ"].map(function(h) {
             return /* @__PURE__ */ React.createElement("th", { key: h, style: { textAlign: "right", padding: "1px 4px", color: "#6b7280" } }, h);
           })
         )),
         /* @__PURE__ */ React.createElement("tbody", null,
           (line.ai.materials || []).map(function(mat, mi) {
             var suppMatch = (supplierItems || []).find(function(s) { return s.id === mat.code || s.name === mat.name; });
+            var isDakal = mat.source === "dakal";
             var unitPrice = suppMatch ? suppMatch.price : (parseFloat(mat.price) || 0);
             var rowTotal = (parseFloat(mat.qtyPerUnit) || 0) * unitPrice;
             return /* @__PURE__ */ React.createElement("tr", { key: mi, style: { borderTop: "0.5px solid #bbf7d0" } },
               /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-                suppMatch ? /* @__PURE__ */ React.createElement("span", { style: { color: "#059669", fontWeight: 700 } }, "\u2713 ") : /* @__PURE__ */ React.createElement("span", { style: { color: "#d97706" } }, "? "),
+                suppMatch ? /* @__PURE__ */ React.createElement("span", { style: { color: "#059669", fontWeight: 700 } }, "\u2713 ") : isDakal ? /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed", fontWeight: 700 } }, "\uD83D\uDCCA ") : /* @__PURE__ */ React.createElement("span", { style: { color: "#d97706" } }, "? "),
                 mat.name.slice(0, 16)
               ),
               /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px" } },
@@ -2856,18 +2859,62 @@ function BOQMode(props) {
                   style: { width: 40, padding: "1px 3px", border: "1px solid #86efac", borderRadius: 2, fontSize: 10, fontFamily: "inherit" }
                 })
               ),
-              /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px", color: suppMatch ? "#059669" : "#9ca3af", fontSize: 10 } }, "\\u20AA", fmt3(unitPrice)),
-              /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px", fontWeight: 600 } }, "\\u20AA", fmt3(rowTotal))
+              /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px", color: suppMatch ? "#059669" : "#9ca3af", fontSize: 10 } }, "\u20AA", fmt3(unitPrice)),
+              /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px", fontWeight: 600 } }, "\u20AA", fmt3(rowTotal))
             );
           }),
           /* @__PURE__ */ React.createElement("tr", { style: { borderTop: "1px solid #86efac" } },
-            /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "3px 4px", fontWeight: 700, color: "#15803d" } }, "סה\"\u05DB חומר/יח:"),
-            /* @__PURE__ */ React.createElement("td", { style: { padding: "3px 4px", fontWeight: 700, color: "#15803d" } }, "\\u20AA",
+            /* @__PURE__ */ React.createElement("td", { colSpan: 3, style: { padding: "3px 4px", fontWeight: 700, color: "#15803d" } }, "סה\"כ חומר/יח:"),
+            /* @__PURE__ */ React.createElement("td", { style: { padding: "3px 4px", fontWeight: 700, color: "#15803d" } }, "\u20AA",
               fmt3((line.ai.materials||[]).reduce(function(s, m) {
                 var sp = (supplierItems||[]).find(function(x){return x.id===m.code||x.name===m.name;});
                 return s + (parseFloat(m.qtyPerUnit)||0) * (sp ? sp.price : (parseFloat(m.price)||0));
               }, 0))
             )
+,
+      /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, padding: "4px 6px", background: "#eff6ff", borderRadius: 3, fontSize: 10, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        /* @__PURE__ */ React.createElement("span", { style: { color: "#1d4ed8", fontWeight: 700 } }, "\u05E2\u05DC\u05D5\u05EA \u05E9\u05DC\u05D9: \u20AA",
+          fmt3((line.ai.materials||[]).reduce(function(s,m){
+            var sp=(supplierItems||[]).find(function(x){return x.id===m.code||x.name===m.name;});
+            return s+(parseFloat(m.qtyPerUnit)||0)*(sp?sp.price:(parseFloat(m.price)||0));
+          },0))
+        ),
+        line.ai.dakalHigh ? /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed", fontWeight: 700 } }, "\u05D3\u05E7\u05DC: \u20AA",
+          fmt3(Math.round((line.ai.dakalLow||0)*(dakalMult||1))), " - \u20AA", fmt3(Math.round((line.ai.dakalHigh||0)*(dakalMult||1)))
+        ) : null
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, borderTop: "1px solid #86efac", paddingTop: 6 } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#374151", fontSize: 10, marginBottom: 4 } }, "\u05D4\u05D5\u05E1\u05E3 \u05E4\u05E8\u05D9\u05D8 \u05DE\u05D3\u05E7\u05DC:"),
+        /* @__PURE__ */ React.createElement("input", { type: "search", placeholder: "\u05D7\u05E4\u05E9 \u05D1\u05DE\u05D7\u05D9\u05E8\u05D5\u05DF \u05D3\u05E7\u05DC...", value: dakalSearch[line.id]||"",
+          onChange: function(e) { setLineSearch(line.id, e.target.value); },
+          style: { width: "100%", padding: "3px 6px", border: "1px solid #d1d5db", borderRadius: 3, fontSize: 10, fontFamily: "inherit", marginBottom: 3 }
+        }),
+        /* Search results */
+        (dakalSearch[line.id] && dakalSearch[line.id].length > 1) ? /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 100, overflowY: "auto" } },
+          (function() {
+            var q = dakalSearch[line.id].toLowerCase();
+            var results = (dakalB||[]).concat(dakalM||[]).filter(function(d){ return (d.d||"").includes(q) || (d.c||"").includes(q); }).slice(0,6);
+            return results.map(function(d) {
+              return /* @__PURE__ */ React.createElement("div", { key: d.c,
+                onClick: function() {
+                  var newMat = { code: d.c, name: d.d.slice(0,40), unit: d.u||"\u05D9\u05D7'", qtyPerUnit: 1, price: d.h||0, source: "dakal" };
+                  var newMats = (line.ai.materials||[]).concat([newMat]);
+                  var newMatCost = newMats.reduce(function(s,m){
+                    var sp=(supplierItems||[]).find(function(x){return x.id===m.code||x.name===m.name;});
+                    return s+(parseFloat(m.qtyPerUnit)||0)*(sp?sp.price:(parseFloat(m.price)||0));
+                  },0);
+                  updLine(line.id, "ai", Object.assign({}, line.ai, { materials: newMats, matCostPerUnit: newMatCost }));
+                  setLineSearch(line.id, "");
+                },
+                style: { padding: "3px 6px", cursor: "pointer", fontSize: 10, borderBottom: "0.5px solid #e5e7eb", display: "flex", justifyContent: "space-between" }
+              },
+              /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 } }, d.c, " ", d.d.slice(0,35)),
+              /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed", whiteSpace: "nowrap" } }, "\u20AA", fmt3(d.h))
+              );
+            });
+          })()
+        ) : null
+      )
           )
         )
       )
