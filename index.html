@@ -1267,6 +1267,10 @@ function InvoicePreparation({ onSaved, editInvoice }) {
   const cats = [...new Set(enriched.map((r) => r.cat))];
   const saveInvoice = async () => {
     if (!generated || !invoiceNum.trim()) return;
+    if (endDate && startDate && endDate < startDate) {
+      alert("\u05E9גיאה: \u05EAאריך \u05E1יום ("+endDate+") \u05E7ודם \u05DC\u05EAאריך \u05D4תחלה ("+startDate+"). \u05D0נא \u05EAקן \u05D0ת \u05D4תאריכים.");
+      return;
+    }
     setSaving(true);
     const allInvoices = await db.get("invoices") || [];
     const items = enriched.map((r) => ({
@@ -1430,7 +1434,8 @@ function InvoiceHistory({ invoices, onRefresh, onEdit }) {
       onClick: () => setExpanded(expanded === inv.id ? null : inv.id)
     },
     /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15, color: "#111" } }, inv.invoiceNum), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginTop: 2 } }, inv.projectName, " \xB7 ", inv.startDate, " \u2013 ", inv.endDate, inv.prevInvoiceCount > 0 && /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed" } }, " \xB7 ", inv.prevInvoiceCount, " \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD"))),
-    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#2563eb", small: true }, "\u05EA\u05E7\u05D5\u05E4\u05D4: \u20AA", fmt(inv.subtotal)), inv.totalCumulativeAmount > 0 && /* @__PURE__ */ React.createElement(Badge, { color: "#7c3aed", small: true }, "\u05DE\u05E6\u05D8\u05D1\u05E8: \u20AA", fmt(inv.totalCumulativeAmount)), /* @__PURE__ */ React.createElement(Badge, { color: "#059669", small: true }, "\u05DC\u05EA\u05E9\u05DC\u05D5\u05DD: \u20AA", fmt(inv.total))),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#2563eb", small: true }, "\u05EA\u05E7\u05D5\u05E4\u05D4: \u20AA", fmt(inv.subtotal)), inv.totalCumulativeAmount > 0 && /* @__PURE__ */ React.createElement(Badge, { color: "#7c3aed", small: true }, "\u05DE\u05E6\u05D8\u05D1\u05E8: \u20AA", fmt(inv.totalCumulativeAmount)), /* @__PURE__ */ React.createElement(Badge, { color: "#059669", small: true }, "\u05DC\u05EA\u05E9\u05DC\u05D5\u05DD: \u20AA", fmt(inv.total > 0 ? inv.total : (inv.retentionRelease || 0))),
+    inv.total === 0 && inv.totalCumulativeAmount > 0 ? /* @__PURE__ */ React.createElement(Badge, { color: "#dc2626", small: true }, "\\u26A0 \\u05E1\\u05DB\\u05D5\\u05DD 0 \\u2014 \\u05E2\\u05E8\\u05D5\\u05DA \\u05D5\\u05E9\\u05DE\\u05D5\\u05E8") : null),
     /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#9ca3af" } }, inv.createdAt),
     /* Status badge */
 inv.status ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, padding: "2px 7px", borderRadius: 4, background: (STATUS_COLORS[inv.status]||"#6b7280")+"22", color: STATUS_COLORS[inv.status]||"#6b7280", fontWeight: 600, whiteSpace: "nowrap" } }, STATUS_LABELS[inv.status]||inv.status) : null,
