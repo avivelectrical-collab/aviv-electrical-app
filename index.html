@@ -2848,6 +2848,7 @@ function BOQMode(props) {
               /* @__PURE__ */ React.createElement("td", { style: { padding: "2px 4px" } },
                 /* @__PURE__ */ React.createElement("input", { type: "number", value: mat.qtyPerUnit, min: 0, step: 0.01,
                   onChange: function(e) {
+                    if (!line.ai || !line.ai.materials) return;
                     var newQty = parseFloat(e.target.value) || 0;
                     var newMats = line.ai.materials.map(function(m, i) { return i === mi ? Object.assign({}, m, { qtyPerUnit: newQty }) : m; });
                     var newMatCost = newMats.reduce(function(s, m) {
@@ -2880,7 +2881,7 @@ function BOQMode(props) {
           },0))
         ),
         line.ai.dakalHigh ? /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed", fontWeight: 700 } }, "\u05D3\u05E7\u05DC: \u20AA",
-          fmt3(Math.round((line.ai.dakalLow||0)*(dakalMult||1))), " - \u20AA", fmt3(Math.round((line.ai.dakalHigh||0)*(dakalMult||1)))
+          fmt3(Math.round((line.ai.dakalLow||0)*calcDakalMult(totalBase*factor))), " - \u20AA", fmt3(Math.round((line.ai.dakalHigh||0)*calcDakalMult(totalBase*factor)))
         ) : null
       ),
       /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, borderTop: "1px solid #86efac", paddingTop: 6 } },
@@ -2898,12 +2899,13 @@ function BOQMode(props) {
               return /* @__PURE__ */ React.createElement("div", { key: d.c,
                 onClick: function() {
                   var newMat = { code: d.c, name: d.d.slice(0,40), unit: d.u||"\u05D9\u05D7'", qtyPerUnit: 1, price: d.h||0, source: "dakal" };
+                  if (!line.ai) return;
                   var newMats = (line.ai.materials||[]).concat([newMat]);
                   var newMatCost = newMats.reduce(function(s,m){
                     var sp=(supplierItems||[]).find(function(x){return x.id===m.code||x.name===m.name;});
                     return s+(parseFloat(m.qtyPerUnit)||0)*(sp?sp.price:(parseFloat(m.price)||0));
                   },0);
-                  updLine(line.id, "ai", Object.assign({}, line.ai, { materials: newMats, matCostPerUnit: newMatCost }));
+                  updLine(line.id, "ai", Object.assign({}, line.ai || {}, { materials: newMats, matCostPerUnit: newMatCost }));
                   setLineSearch(line.id, "");
                 },
                 style: { padding: "3px 6px", cursor: "pointer", fontSize: 10, borderBottom: "0.5px solid #e5e7eb", display: "flex", justifyContent: "space-between" }
