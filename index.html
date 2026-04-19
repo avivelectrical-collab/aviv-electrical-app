@@ -1866,17 +1866,197 @@ function StandingOrdersManager({ onClose }) {
 }
 
 
+// ---- Invoice Uploader — רכיב משותף להעלאת חשבונית ספק (Storage + AI) ----
+function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
+  const [uploading, setUploading] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
+  var ALLOWED = ["application/pdf", "image/jpeg", "image/png"];
+  var MAX_SIZE = 10 * 1024 * 1024;
+
+  var handleFile = async function(e) {
+    var file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (ALLOWED.indexOf(file.type) < 0) { alert("\u05E1\u05D5\u05D2 \u05E7\u05D5\u05D1\u05E5 \u05DC\u05D0 \u05E0\u05EA\u05DE\u05DA. \u05DE\u05D5\u05EA\u05E8: PDF, JPG, PNG"); return; }
+    if (file.size > MAX_SIZE) { alert("\u05D4\u05E7\u05D5\u05D1\u05E5 \u05D2\u05D3\u05D5\u05DC \u05DE-10MB"); return; }
+
+    try {
+      // 1. [TEMP — ייתוקן בשלב 6] Storage מושבת (בעיית billing ב-Firebase);
+      //    עד שיתוקן — שומרים data URL ב-fileUrl במקום URL אמיתי של Storage.
+      //    שים לב: Firestore מוגבל ל-1MB לדוקומנט — שלב 6 חייב לטפל בזה לפני שמירה.
+      setScanning(true);
+      var b64 = await new Promise(function(res, rej) {
+        var r = new FileReader();
+        r.onload = function() { res(r.result.split(",")[1]); };
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      var fileUrl = "data:" + file.type + ";base64," + b64;
+      var storagePath = null;
+
+      // 3. בניית payload ל-Claude (document עבור PDF, image עבור JPG/PNG)
+      var suppList = (cfSuppliers || []).map(function(s) { return s.name + " (" + s.paymentTerms + ")"; }).join(", ");
+      var systemPrompt = [
+        "\u05D0\u05EA\u05D4 \u05E2\u05D5\u05D6\u05E8 \u05E9\u05DE\u05D7\u05DC\u05E5 \u05E0\u05EA\u05D5\u05E0\u05D9\u05DD \u05DE\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05D5\u05E7\u05D1\u05DC\u05D5\u05EA \u05E9\u05DC \u05E2\u05E1\u05E7 \u05D9\u05E9\u05E8\u05D0\u05DC\u05D9 \u05D1\u05EA\u05D7\u05D5\u05DD \u05D4\u05D7\u05E9\u05DE\u05DC.",
+        "",
+        "\u05DB\u05DC\u05DC\u05D9\u05DD \u05E7\u05E9\u05D9\u05D7\u05D9\u05DD:",
+        "1. \u05D4\u05D7\u05D6\u05E8 \u05D0\u05DA \u05D5\u05E8\u05E7 JSON \u05EA\u05E7\u05D9\u05DF. \u05DC\u05DC\u05D0 \u05D4\u05E1\u05D1\u05E8\u05D9\u05DD, \u05DC\u05DC\u05D0 markdown fences (```), \u05DC\u05DC\u05D0 \u05D8\u05E7\u05E1\u05D8 \u05DC\u05E4\u05E0\u05D9 \u05D0\u05D5 \u05D0\u05D7\u05E8\u05D9 \u05D4-JSON.",
+        "2. \u05DE\u05D1\u05E0\u05D4 \u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 (\u05DB\u05DC \u05D4\u05E9\u05D3\u05D5\u05EA \u05D7\u05D5\u05D1\u05D4):",
+        "{\"supplier\":\"string\",\"invoiceNum\":\"string\"|null,\"invoiceDate\":\"YYYY-MM-DD\"|null,\"totalAmount\":number|null,\"vatAmount\":number|null,\"netAmount\":number|null,\"items\":[{\"name\":\"string\",\"unit\":\"string\",\"qty\":number,\"unitPrice\":number}],\"paymentTerms\":\"cash\"|\"net30\"|\"net45\"|\"net60\"|\"net90\"|null,\"notes\":\"string\",\"confidence\":0.0-1.0}",
+        "3. \u05E2\u05E8\u05DB\u05D9\u05DD \u05D7\u05E1\u05E8\u05D9\u05DD/\u05DC\u05D0 \u05D1\u05E8\u05D5\u05E8\u05D9\u05DD \u2192 null (\u05DC\u05D0 \u05DE\u05D7\u05E8\u05D5\u05D6\u05EA \u05E8\u05D9\u05E7\u05D4, \u05DC\u05D0 \"\u05DC\u05D0 \u05D9\u05D3\u05D5\u05E2\").",
+        "4. \u05E1\u05DB\u05D5\u05DE\u05D9\u05DD: \u05DE\u05E1\u05E4\u05E8\u05D9\u05DD \u05D1\u05DC\u05D1\u05D3, \u05D1\u05DC\u05D9 \u20AA \u05D5\u05D1\u05DC\u05D9 \u05E4\u05E1\u05D9\u05E7\u05D9\u05DD (\u05DC\u05DE\u05E9\u05DC: 12,345.00 \u2192 12345).",
+        "5. \u05EA\u05D0\u05E8\u05D9\u05DB\u05D9\u05DD: ISO format YYYY-MM-DD \u05D1\u05DC\u05D1\u05D3.",
+        "6. confidence \u05E0\u05DE\u05D5\u05DA \u05DE-0.7 \u05D0\u05DD \u05E9\u05D3\u05D5\u05EA \u05E7\u05E8\u05D9\u05D8\u05D9\u05D9\u05DD (\u05E1\u05E4\u05E7/\u05EA\u05D0\u05E8\u05D9\u05DA/\u05E1\u05DB\u05D5\u05DD \u05DB\u05D5\u05DC\u05DC) \u05DE\u05E2\u05D5\u05E8\u05E4\u05DC\u05D9\u05DD \u05D0\u05D5 \u05D7\u05E1\u05E8\u05D9\u05DD.",
+        "7. \u05D4\u05D9\u05D4 \u05DE\u05E6\u05D5\u05DE\u05E6\u05DD \u05D1\u05E4\u05E8\u05D9\u05D8\u05D9 items \u2014 \u05E8\u05E7 \u05D4\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D4\u05E2\u05D9\u05E7\u05E8\u05D9\u05D9\u05DD (\u05E2\u05D3 10 \u05E9\u05D5\u05E8\u05D5\u05EA). \u05D0\u05DC \u05EA\u05E4\u05E8\u05D8 \u05DB\u05DC \u05E9\u05D5\u05E8\u05D4 \u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA.",
+        "",
+        "\u05DB\u05DC\u05DC\u05D9 \u05D4\u05D6\u05D4\u05D1 \u05E2\u05DC \u05D6\u05D9\u05D4\u05D5\u05D9 \u05E1\u05E4\u05E7:",
+        "8. \u05D4-supplier \u05D4\u05D5\u05D0 \u05D4\u05DE\u05D5\u05DB\u05E8 \u05E9\u05D4\u05D5\u05E6\u05D9\u05D0 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA (\u05E1\u05E4\u05E7/\u05D7\u05E0\u05D5\u05EA/\u05D7\u05D1\u05E8\u05D4), \u05DC\u05D0 \u05D4\u05E7\u05D5\u05E0\u05D4/\u05D4\u05DC\u05E7\u05D5\u05D7. \u05D1\u05D3\u05E8\u05DB \u05DB\u05DC\u05DC \u05E9\u05DD \u05D4\u05DE\u05D5\u05DB\u05E8 \u05DE\u05D5\u05E4\u05D9\u05E2 \u05D1\u05E8\u05D0\u05E9 \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA, \u05DC\u05E2\u05D9\u05EA\u05D9\u05DD \u05E2\u05DD \u05DC\u05D5\u05D2\u05D5, \u05D5\u05DE\u05EA\u05D7\u05EA\u05D9\u05D5 \u05DE\u05D5\u05E4\u05D9\u05E2 '\u05DC\u05DB\u05D1\u05D5\u05D3' \u05D0\u05D5 '\u05DE\u05E9\u05D5\u05D2\u05E8 \u05DC'.",
+        "9. \u05D4\u05DC\u05E7\u05D5\u05D7 \u05E9\u05DC\u05E0\u05D5 (\u05E9\u05DC\u05D0 \u05D0\u05DE\u05D5\u05E8 \u05DC\u05D4\u05D5\u05E4\u05D9\u05E2 \u05D1\u05E9\u05D3\u05D4 supplier \u05D1\u05E9\u05D5\u05DD \u05D0\u05D5\u05E4\u05DF) \u05D4\u05D5\u05D0: \"\u05D0\u05D1\u05D9\u05D1 \u05E1\u05D1\u05D2 \u05DE\u05E2\u05E8\u05DB\u05D5\u05EA \u05D7\u05E9\u05DE\u05DC\" \u05D0\u05D5 \u05D5\u05E8\u05D9\u05D0\u05E6\u05D9\u05D5\u05EA: \"\u05D0\u05D1\u05D9\u05D1 \u05E1\u05D1\u05D2\", \"\u05D0\u05D1\u05D9\u05D1 \u05DE\u05E2\u05E8\u05DB\u05D5\u05EA \u05D7\u05E9\u05DE\u05DC\", \"Aviv Sabag\", \"Aviv Electrical\". \u05D0\u05DD \u05D0\u05D7\u05D3 \u05DE\u05D0\u05DC\u05D4 \u05DE\u05D5\u05E4\u05D9\u05E2 \u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u2014 \u05D4\u05D5\u05D0 \u05D4\u05E7\u05D5\u05E0\u05D4, \u05D4\u05EA\u05E2\u05DC\u05DD \u05DE\u05DE\u05E0\u05D5 \u05DC\u05D7\u05DC\u05D5\u05D8\u05D9\u05DF \u05DE\u05D9 \u05D4\u05E1\u05E4\u05E7.",
+        "10. \u05D0\u05DD \u05E9\u05DD \u05D4\u05DE\u05D5\u05DB\u05E8 \u05DC\u05D0 \u05D1\u05E8\u05D5\u05E8 \u2014 \u05D4\u05D7\u05D6\u05E8 supplier: null \u05E2\u05DD confidence < 0.5 (\u05E2\u05D3\u05D9\u05E3 \u05DC\u05D0 \u05DC\u05E0\u05D7\u05E9 \u05DE\u05D0\u05E9\u05E8 \u05DC\u05D4\u05D7\u05D6\u05D9\u05E8 \u05E9\u05DD \u05E9\u05D2\u05D5\u05D9)."
+      ].join("\n");
+      var userPrompt = "\u05E1\u05E8\u05D5\u05E7 \u05D0\u05EA \u05D4\u05E7\u05D5\u05D1\u05E5 \u05D4\u05DE\u05E6\u05D5\u05E8\u05E3 \u05D5\u05D4\u05D7\u05D6\u05E8 JSON \u05DC\u05E4\u05D9 \u05D4-schema \u05E9\u05D4\u05D5\u05D2\u05D3\u05E8.";
+      if (suppList) userPrompt += "\n\n\u05E1\u05E4\u05E7\u05D9\u05DD \u05E7\u05D9\u05D9\u05DE\u05D9\u05DD \u05D1\u05DE\u05E2\u05E8\u05DB\u05EA (\u05D4\u05E9\u05DD \u05D1\u05E4\u05D5\u05E2\u05DC \u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D4\u05D5\u05D0 \u05D4\u05E7\u05D5\u05D1\u05E2): " + suppList;
+      var fileBlock = file.type === "application/pdf"
+        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }
+        : { type: "image", source: { type: "base64", media_type: file.type, data: b64 } };
+
+      // 4. קריאה ל-Claude (system prompt + max_tokens=2000 למניעת חיתוך)
+      var resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": (window.__anthropicKey || localStorage.getItem("__anthropicKey") || ""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, system: systemPrompt, messages: [{ role: "user", content: [fileBlock, { type: "text", text: userPrompt }] }] })
+      });
+      var data = await resp.json();
+
+      // 5. טיפול בשגיאות ברמת ה-API + אזהרה על חיתוך
+      if (data.error) throw new Error("Claude API: " + (data.error.message || JSON.stringify(data.error)));
+      if (data.stop_reason === "max_tokens") console.warn("[Claude] stop_reason=max_tokens \u2014 ייתכן שהתגובה נחתכה:", data);
+
+      var txt = ((data.content || []).find(function(b) { return b.type === "text"; }) || {}).text || "";
+      if (!txt) throw new Error("\u05EA\u05D2\u05D5\u05D1\u05D4 \u05E8\u05D9\u05E7\u05D4 \u05DE-Claude");
+
+      // 6. חילוץ JSON חסון — גם אם Claude הוסיף טקסט עטיפה
+      var cleaned = txt.replace(/```json|```/g, "").trim();
+      var firstBrace = cleaned.indexOf("{");
+      var lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace < 0 || lastBrace < 0) {
+        console.error("[Claude] raw response (no JSON found):", txt);
+        throw new Error("Claude \u05DC\u05D0 \u05D4\u05D7\u05D6\u05D9\u05E8 JSON. \u05EA\u05D2\u05D5\u05D1\u05D4 \u05D1\u05E7\u05D5\u05E0\u05E1\u05D5\u05DC (F12).");
+      }
+      var jsonStr = cleaned.substring(firstBrace, lastBrace + 1);
+
+      var parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        console.error("[Claude] JSON parse failed:", parseErr.message);
+        console.error("[Claude] raw response:", txt);
+        console.error("[Claude] extracted JSON:", jsonStr);
+        throw new Error("\u05E9\u05D2\u05D9\u05D0\u05EA parsing: " + parseErr.message + ". \u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 \u05D1\u05E7\u05D5\u05E0\u05E1\u05D5\u05DC (F12). \u05E0\u05E1\u05D4 \u05E7\u05D5\u05D1\u05E5 \u05E7\u05D8\u05DF \u05D9\u05D5\u05EA\u05E8.");
+      }
+
+      // 5. התאמת ספק — אם supplierId הועבר (בכרטיס ספק) — משתמש בו; אחרת match חופשי
+      var knownSupplier = supplierId
+        ? (cfSuppliers || []).find(function(s) { return s.id === supplierId; })
+        : (cfSuppliers || []).find(function(s) { return (parsed.supplier || "").includes(s.name) || s.name.includes(parsed.supplier || ""); });
+      if (knownSupplier) parsed.paymentTerms = knownSupplier.paymentTerms;
+
+      // 6. callback — מעבירים מטאדאטה של הקובץ יחד עם הנתונים שזוהו (לשימוש בשלב 6)
+      setScanning(false);
+      onScanReady({ ...parsed, fileUrl: fileUrl, fileName: file.name, fileType: file.type, storagePath: storagePath, detectedSupplier: knownSupplier });
+    } catch (err) {
+      setUploading(false);
+      setScanning(false);
+      if (onError) onError(err);
+      else alert("\u05E9\u05D2\u05D9\u05D0\u05D4: " + err.message);
+    }
+  };
+
+  var busy = uploading || scanning;
+  var label = uploading ? "\u23F3 \u05DE\u05E2\u05DC\u05D4..." : scanning ? "\u23F3 \u05E1\u05D5\u05E8\u05E7..." : "\uD83D\uDCC4 \u05E2\u05DC\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA";
+  return /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", background: busy ? "#f3f4f6" : "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, cursor: busy ? "wait" : "pointer", fontSize: 13, color: "#1d4ed8", fontWeight: 600, opacity: busy ? 0.7 : 1 } },
+    label,
+    /* @__PURE__ */ React.createElement("input", { type: "file", accept: "application/pdf,image/jpeg,image/png", style: { display: "none" }, onChange: handleFile, disabled: busy })
+  );
+}
+
+
 // ---- Supplier Scan Approval Component ----
-function SupplierScanApproval({ scan, onApprove, onCancel }) {
+function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCancel }) {
   const [payTerms, setPayTerms] = React.useState(scan.paymentTerms || "net30");
   const [editScan, setEditScan] = React.useState({...scan});
   var fmt = function(n){ return (Math.round(n||0)).toLocaleString("he-IL"); };
+
+  // התאמת ספק מהרשימה — fuzzy case-insensitive (contains דו-כיווני)
+  var supplierMatch = React.useMemo(function(){
+    var s = (editScan.supplier||"").trim().toLowerCase();
+    if (!s || !(cfSuppliers||[]).length) return null;
+    return (cfSuppliers||[]).find(function(sup){
+      var n = (sup.name||"").trim().toLowerCase();
+      return n && (n.indexOf(s) >= 0 || s.indexOf(n) >= 0);
+    }) || null;
+  }, [editScan.supplier, cfSuppliers]);
+
+  // זיהוי כפילויות: אותו ספק (case-insensitive) + סכום ±1₪ + תאריך ±3 ימים
+  var duplicates = React.useMemo(function(){
+    if (!editScan.supplier || !editScan.totalAmount || !editScan.invoiceDate) return [];
+    var targetMs = new Date(editScan.invoiceDate).getTime();
+    if (isNaN(targetMs)) return [];
+    var supKey = (editScan.supplier||"").trim().toLowerCase();
+    return (transactions||[]).filter(function(t){
+      if (t.source !== "scan" || !t.supplier) return false;
+      if ((t.supplier||"").trim().toLowerCase() !== supKey) return false;
+      if (Math.abs((t.amount||0) - (editScan.totalAmount||0)) > 1) return false;
+      var tMs = new Date(t.invoiceDate || t.date).getTime();
+      if (isNaN(tMs)) return false;
+      return Math.abs(targetMs - tMs) / 86400000 <= 3;
+    });
+  }, [editScan.supplier, editScan.totalAmount, editScan.invoiceDate, transactions]);
+
+  // confidence badge
+  var conf = typeof scan.confidence === "number" ? scan.confidence : null;
+  var confBadge = null;
+  if (conf !== null) {
+    var cPct = Math.round(conf * 100);
+    var cEmoji = conf >= 0.85 ? "\uD83D\uDFE2" : conf >= 0.65 ? "\uD83D\uDFE1" : "\uD83D\uDD34";
+    var cBg = conf >= 0.85 ? "#d1fae5" : conf >= 0.65 ? "#fef3c7" : "#fee2e2";
+    var cText = conf >= 0.85 ? "#065f46" : conf >= 0.65 ? "#92400e" : "#991b1b";
+    confBadge = /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: cBg, color: cText, borderRadius: 10, fontSize: 11, fontWeight: 600, marginRight: 8 } }, cEmoji + " \u05D1\u05D9\u05D8\u05D7\u05D5\u05DF AI: " + cPct + "%");
+  }
+
+  // match indicator ליד השדה
+  var matchIndicator;
+  if (!editScan.supplier || !editScan.supplier.trim()) {
+    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#9ca3af" } }, "\u2014");
+  } else if (supplierMatch) {
+    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#059669", fontWeight: 600 } }, "\u2713 \u05D1\u05E8\u05E9\u05D9\u05DE\u05D4: " + supplierMatch.name);
+  } else {
+    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#d97706", fontWeight: 600 } }, "\u26A0\uFE0F \u05DC\u05D0 \u05D1\u05E8\u05E9\u05D9\u05DE\u05D4 \u2014 \u05D4\u05D5\u05E1\u05E3 \u05D1\u05D8\u05D0\u05D1 \u05E1\u05E4\u05E7\u05D9\u05DD");
+  }
+
+  // ולידציה + אישור
+  var handleApprove = function(){
+    if (!editScan.supplier || !editScan.supplier.trim()) { alert("\u05E9\u05DD \u05E1\u05E4\u05E7 \u05D7\u05D5\u05D1\u05D4"); return; }
+    if (!editScan.totalAmount || editScan.totalAmount <= 0) { alert("\u05E1\u05DB\u05D5\u05DD \u05D7\u05D9\u05D9\u05D1 \u05DC\u05D4\u05D9\u05D5\u05EA \u05D2\u05D3\u05D5\u05DC \u05DE-0"); return; }
+    if (!editScan.invoiceDate) { alert("\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D7\u05D5\u05D1\u05D4"); return; }
+    if (duplicates.length > 0) {
+      if (!confirm("\u05E0\u05DE\u05E6\u05D0\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D3\u05D5\u05DE\u05D4 (\u05D0\u05D5\u05EA\u05D5 \u05E1\u05E4\u05E7 + \u05D0\u05D5\u05EA\u05D5 \u05E1\u05DB\u05D5\u05DD + \u05EA\u05D0\u05E8\u05D9\u05DA \u05D1\u05D8\u05D5\u05D5\u05D7 \u05E9\u05DC 3 \u05D9\u05DE\u05D9\u05DD). \u05DC\u05D4\u05DE\u05E9\u05D9\u05DA \u05D1\u05DB\u05DC \u05D6\u05D0\u05EA?")) return;
+    }
+    onApprove(editScan, payTerms);
+  };
+
   return /* @__PURE__ */ React.createElement("div", { style: { background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: 14, marginTop: 10 } },
-    /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", marginBottom: 10, fontSize: 13 } }, "\u2705 \u05D4-AI \u05D6\u05D9\u05D4\u05D4 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D5\u05D0\u05E9\u05E8"),
-    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 } },
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: 10 } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", fontSize: 13, flex: 1 } }, "\u2705 \u05D4-AI \u05D6\u05D9\u05D4\u05D4 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D5\u05D0\u05E9\u05E8"),
+      confBadge
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 4 } },
       /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05E4\u05E7" }, /* @__PURE__ */ React.createElement(Input, { value: editScan.supplier||"", onChange: function(e){ setEditScan({...editScan,supplier:e.target.value}); } })),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E1' \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { value: editScan.invoiceNum||"", onChange: function(e){ setEditScan({...editScan,invoiceNum:e.target.value}); } })),
-      /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: editScan.invoiceDate||"", onChange: function(e){ setEditScan({...editScan,invoiceDate:e.target.value}); } })),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: editScan.invoiceDate||"", onChange: function(e){ setEditScan({...editScan,invoiceDate:e.target.value}); } }))
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 10, paddingRight: 2 } }, matchIndicator),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 } },
       /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05DB\u05D5\u05DD \u05D1\u05E8\u05D5\u05D8\u05D5 \u20AA" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: editScan.netAmount||"", onChange: function(e){ setEditScan({...editScan,netAmount:parseFloat(e.target.value)||0}); } })),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E2\"\u05DE \u20AA" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: editScan.vatAmount||"", onChange: function(e){ setEditScan({...editScan,vatAmount:parseFloat(e.target.value)||0}); } })),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D4\"\u05DB \u20AA" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: editScan.totalAmount||"", onChange: function(e){ setEditScan({...editScan,totalAmount:parseFloat(e.target.value)||0}); } }))
@@ -1892,9 +2072,17 @@ function SupplierScanApproval({ scan, onApprove, onCancel }) {
         );
       })
     ),
+    duplicates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fee2e2", border: "1px solid #fecaca", borderRadius: 6, padding: 8, marginTop: 10, marginBottom: 4, fontSize: 12, color: "#991b1b" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, marginBottom: 2 } }, "\u26A0\uFE0F \u05D7\u05E9\u05E9 \u05DB\u05E4\u05D9\u05DC\u05D5\u05EA \u2014 \u05E0\u05DE\u05E6\u05D0\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D3\u05D5\u05DE\u05D4 (" + duplicates.length + "):"),
+      duplicates.slice(0, 3).map(function(d, i){
+        return /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 11 } },
+          "\u2022 " + (d.invoiceDate || d.date || "\u2014") + " \u2014 \u20AA" + fmt(d.amount) + (d.desc ? " (" + d.desc.slice(0, 40) + ")" : "")
+        );
+      })
+    ),
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
       /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: onCancel }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
-      /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function(){ onApprove(editScan, payTerms); } }, "\u2705 \u05D0\u05E9\u05E8 \u05D5\u05E9\u05DE\u05D5\u05E8")
+      /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: handleApprove }, "\u2705 \u05D0\u05E9\u05E8 \u05D5\u05E9\u05DE\u05D5\u05E8")
     )
   );
 }
@@ -2075,8 +2263,8 @@ function CashFlowPage() {
   const [projects, setProjects] = React.useState([]);
   const [cfSuppliers, setCfSuppliers] = React.useState([]);
   const [standingOrders, setStandingOrders] = React.useState([]);
+  const [supplierInvoices, setSupplierInvoices] = React.useState([]);
   const [supplierScan, setSupplierScan] = React.useState(null);
-  const [scanning, setScanning] = React.useState(false);
   const [showManualForm, setShowManualForm] = React.useState(false);
   const [manualForm, setManualForm] = React.useState({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false, projectId: "" });
   const [settingsForm, setSettingsForm] = React.useState(null);
@@ -2090,13 +2278,14 @@ function CashFlowPage() {
 
   const load = React.useCallback(async () => {
     await migrateSuppliersV1();
-    const [tx, cfg, invs, projs, supp, so] = await Promise.all([
+    const [tx, cfg, invs, projs, supp, so, supplierInvs] = await Promise.all([
       db.get("cashflow") || [],
       db.get("cashflow_settings") || {},
       db.get("invoices") || [],
       db.get("projects") || [],
       db.get("cashflow_suppliers") || [],
       db.get("cashflow_standing_orders") || [],
+      db.get("supplier_invoices") || [],
     ]);
     setTransactions(tx || []);
     setSettings({ openingBalance: 0, openingDate: new Date().toISOString().slice(0,7), defaultPaymentTerms: "net30", ...(cfg||{}) });
@@ -2104,6 +2293,7 @@ function CashFlowPage() {
     setProjects(projs || []);
     setCfSuppliers(supp || []);
     setStandingOrders(so || []);
+    setSupplierInvoices(supplierInvs || []);
   }, []);
 
   React.useEffect(() => { load(); }, []);
@@ -2276,35 +2466,95 @@ function CashFlowPage() {
     load();
   };
 
-  var handleSupplierPDF = async function(e) {
-    var file = e.target.files[0]; if (!file) return;
-    setScanning(true);
-    try {
-      var b64 = await new Promise(function(res,rej){ var r=new FileReader(); r.onload=function(){ res(r.result.split(",")[1]); }; r.onerror=rej; r.readAsDataURL(file); });
-      var suppList = cfSuppliers.map(function(s){ return s.name + " (" + s.paymentTerms + ")"; }).join(", ");
-      var prompt = "\u05E1\u05E8\u05D5\u05E7 \u05D0\u05EA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D4\u05E1\u05E4\u05E7 \u05D5\u05D4\u05D7\u05D6\u05E8 JSON \u05D1\u05DC\u05D1\u05D3:\n{\"supplier\":\"\",\"invoiceNum\":\"\",\"invoiceDate\":\"\",\"totalAmount\":0,\"vatAmount\":0,\"netAmount\":0,\"items\":[{\"name\":\"\",\"unit\":\"\",\"qty\":1,\"unitPrice\":0}],\"paymentTerms\":\"net30\",\"notes\":\"\"}";
-      if (suppList) prompt += "\n\n\u05E1\u05E4\u05E7\u05D9\u05DD \u05E7\u05D9\u05D9\u05DE\u05D9\u05DD: " + suppList;
-      var resp = await fetch("https://api.anthropic.com/v1/messages", { method:"POST", headers:{"Content-Type":"application/json","x-api-key":(window.__anthropicKey||localStorage.getItem("__anthropicKey")||""),"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"}, body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:[{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:prompt}]}]}) });
-      var data = await resp.json();
-      var txt = ((data.content||[]).find(function(b){return b.type==="text";})||{}).text||"";
-      var parsed = JSON.parse(txt.replace(/```json|```/g,"").trim());
-      var knownSupplier = cfSuppliers.find(function(s){ return (parsed.supplier||"").includes(s.name)||s.name.includes(parsed.supplier||""); });
-      if (knownSupplier) parsed.paymentTerms = knownSupplier.paymentTerms;
-      setSupplierScan({...parsed,fileName:file.name,detectedSupplier:knownSupplier});
-    } catch(err) { alert("\u05E9\u05D2\u05D9\u05D0\u05D4: "+err.message); }
-    setScanning(false);
-  };
-
   var approveSupplierScan = async function(scan, payTerms) {
     var payDate = calcPaymentDate(scan.invoiceDate||new Date().toISOString().slice(0,10), payTerms||scan.paymentTerms||"net30");
-    var all = await db.get("cashflow")||[];
-    await db.set("cashflow", [...all,{id:genId(),cat:"supplier_invoice",isIncome:false,date:payDate,invoiceDate:scan.invoiceDate,desc:"\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA "+(scan.supplier||"")+(scan.invoiceNum?" #"+scan.invoiceNum:""),amount:scan.totalAmount||0,supplier:scan.supplier,paymentTerms:payTerms||scan.paymentTerms,paidStatus:"pending",createdAt:new Date().toISOString(),source:"scan"}]);
-    if (scan.items&&scan.items.length) {
-      var supp=await db.get("supplier_items")||[];
-      scan.items.forEach(function(item){if(!item.name||!item.unitPrice)return;var ex=supp.find(function(s){return s.name===item.name;});if(ex){ex.price=item.unitPrice;ex.lastUpdated=scan.invoiceDate;}else{supp.push({id:genId(),cat:scan.supplier||"\u05DB\u05DC\u05DC\u05D9",name:item.name,unit:item.unit||"\u05D9\u05D7'",price:item.unitPrice,firstPrice:item.unitPrice,history:"",lastUpdated:scan.invoiceDate});}});
-      await db.set("supplier_items",supp);
+    var supplierInvoiceId = genId();
+    var transactionId = genId();
+    var now = new Date().toISOString();
+
+    // Size guard: שומרים fileUrl רק אם הוא URL אמיתי או data URL <500KB (Firestore מוגבל ל-1MB לדוק)
+    var savedFileUrl = null;
+    var fileUrlDropped = false;
+    if (scan.fileUrl) {
+      if (scan.fileUrl.indexOf("data:") === 0) {
+        if (scan.fileUrl.length < 500 * 1024) {
+          savedFileUrl = scan.fileUrl;
+        } else {
+          fileUrlDropped = true;
+          console.warn("[supplier_invoices] fileUrl \u05D2\u05D3\u05D5\u05DC \u05DE\u05D3\u05D9 (" + scan.fileUrl.length + " bytes) \u2014 \u05DC\u05D0 \u05E0\u05E9\u05DE\u05E8. \u05EA\u05E7\u05DF billing \u05D1-Firebase \u05DC\u05D4\u05E4\u05E2\u05DC\u05EA Storage.");
+        }
+      } else {
+        savedFileUrl = scan.fileUrl;
+      }
     }
-    setSupplierScan(null); load();
+
+    // 1. רשומת supplier_invoice חדשה (קישור ל-cashflow דרך transactionId)
+    var supplierInvoice = {
+      id: supplierInvoiceId,
+      transactionId: transactionId,
+      supplier: scan.supplier || "",
+      supplierInvoiceNum: scan.invoiceNum || null,
+      invoiceDate: scan.invoiceDate || null,
+      paymentDate: payDate,
+      totalAmount: scan.totalAmount || 0,
+      vatAmount: (typeof scan.vatAmount === "number") ? scan.vatAmount : null,
+      netAmount: (typeof scan.netAmount === "number") ? scan.netAmount : null,
+      paymentTerms: payTerms || scan.paymentTerms || "net30",
+      items: scan.items || [],
+      notes: scan.notes || "",
+      confidence: (typeof scan.confidence === "number") ? scan.confidence : null,
+      fileUrl: savedFileUrl,
+      fileName: scan.fileName || null,
+      fileType: scan.fileType || null,
+      storagePath: scan.storagePath || null,
+      status: "pending",
+      paidAt: null,
+      source: "scan",
+      createdAt: now
+    };
+
+    // 2. רשומת cashflow (קישור ל-supplier_invoice דרך supplierInvoiceId)
+    var transaction = {
+      id: transactionId,
+      supplierInvoiceId: supplierInvoiceId,
+      cat: "supplier_invoice",
+      isIncome: false,
+      date: payDate,
+      invoiceDate: scan.invoiceDate,
+      desc: "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA " + (scan.supplier||"") + (scan.invoiceNum?" #"+scan.invoiceNum:""),
+      amount: scan.totalAmount||0,
+      supplier: scan.supplier,
+      paymentTerms: payTerms||scan.paymentTerms,
+      paidStatus: "pending",
+      createdAt: now,
+      source: "scan"
+    };
+
+    // 3. כתיבה לשתי הקולקציות (לא אטומי ברמת transactions, אבל מקובל בסכום הזה)
+    var allInvoices = await db.get("supplier_invoices") || [];
+    await db.set("supplier_invoices", [...allInvoices, supplierInvoice]);
+    var allCashflow = await db.get("cashflow") || [];
+    await db.set("cashflow", [...allCashflow, transaction]);
+
+    // 4. עדכון מחירון supplier_items (ללא שינוי מההתנהגות המקורית)
+    if (scan.items && scan.items.length) {
+      var supp = await db.get("supplier_items") || [];
+      scan.items.forEach(function(item){
+        if (!item.name || !item.unitPrice) return;
+        var ex = supp.find(function(s){ return s.name === item.name; });
+        if (ex) { ex.price = item.unitPrice; ex.lastUpdated = scan.invoiceDate; }
+        else { supp.push({ id: genId(), cat: scan.supplier||"\u05DB\u05DC\u05DC\u05D9", name: item.name, unit: item.unit||"\u05D9\u05D7'", price: item.unitPrice, firstPrice: item.unitPrice, history: "", lastUpdated: scan.invoiceDate }); }
+      });
+      await db.set("supplier_items", supp);
+    }
+
+    // 5. התראה אם הקובץ היה גדול מדי לשמירה
+    if (fileUrlDropped) {
+      alert("\u26A0\uFE0F \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05E0\u05E9\u05DE\u05E8\u05D4, \u05D0\u05D1\u05DC \u05D4\u05E7\u05D5\u05D1\u05E5 \u05E2\u05E6\u05DE\u05D5 \u05DC\u05D0 \u05E0\u05E9\u05DE\u05E8 (>500KB). \u05EA\u05E7\u05DF billing \u05D1-Firebase \u05DC\u05D4\u05E4\u05E2\u05DC\u05EA Storage \u05D0\u05DE\u05D9\u05EA\u05D9\u05EA.");
+    }
+
+    setSupplierScan(null);
+    load();
   };
 
   var saveSettings = async function(sf) { await db.set("cashflow_settings",sf); setSettings(sf); setSettingsForm(null); load(); };
@@ -2509,13 +2759,10 @@ function CashFlowPage() {
     tab==="suppliers" && /* @__PURE__ */ React.createElement("div", null,
       /* @__PURE__ */ React.createElement(Card, {style:{marginBottom:12}},
         /* @__PURE__ */ React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:supplierScan?12:0}},
-          /* @__PURE__ */ React.createElement("span",{style:{fontWeight:700,fontSize:13}},"\uD83D\uDCC4 \u05E2\u05DC\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05E1\u05E4\u05E7 (PDF)"),
-          /* @__PURE__ */ React.createElement("label",{style:{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 14px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:6,cursor:"pointer",fontSize:13,color:"#1d4ed8",fontWeight:600}},
-            scanning?"\u23F3 \u05E1\u05D5\u05E8\u05E7...":"\uD83D\uDCC4 \u05E2\u05DC\u05D4 PDF",
-            /* @__PURE__ */ React.createElement("input",{type:"file",accept:"application/pdf",style:{display:"none"},onChange:handleSupplierPDF,disabled:scanning})
-          )
+          /* @__PURE__ */ React.createElement("span",{style:{fontWeight:700,fontSize:13}},"\uD83D\uDCC4 \u05E2\u05DC\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05E1\u05E4\u05E7 (PDF/JPG/PNG)"),
+          /* @__PURE__ */ React.createElement(InvoiceUploader,{cfSuppliers:cfSuppliers,onScanReady:function(scan){setSupplierScan(scan);}})
         ),
-        supplierScan&&/* @__PURE__ */ React.createElement(SupplierScanApproval,{scan:supplierScan,cfSuppliers:cfSuppliers,onApprove:approveSupplierScan,onCancel:function(){setSupplierScan(null);}})
+        supplierScan&&/* @__PURE__ */ React.createElement(SupplierScanApproval,{scan:supplierScan,cfSuppliers:cfSuppliers,transactions:transactions,onApprove:approveSupplierScan,onCancel:function(){setSupplierScan(null);}})
       ),
       /* @__PURE__ */ React.createElement(Card, null,
         /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,marginBottom:8}},"\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05E1\u05E4\u05E7\u05D9\u05DD"),
