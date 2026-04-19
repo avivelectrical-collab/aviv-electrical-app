@@ -10,6 +10,7 @@
   <div id="root"></div>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script>
@@ -22,6 +23,7 @@
       appId:"1:1066028556697:web:f9b413d1846d1ec5a1f308"
     });
     const firestore = firebase.firestore();
+    const storage = firebase.storage();
     const {useState, useEffect, useCallback, useMemo} = React;
   </script>
   <script>
@@ -1904,6 +1906,20 @@ var PAYMENT_TERMS = [
   { id: "net60", label: "\u05E9\u05D5\u05D8\u05E3+60",   days: 60 },
   { id: "net90", label: "\u05E9\u05D5\u05D8\u05E3+90",   days: 90 },
 ];
+// קטגוריות ספקים — רשימה קבועה; קטגוריות מותאמות נשמרות ב-supplier.customCategories
+var SUPPLIER_CATEGORIES = [
+  { id: "fuel",      label: "\u05D3\u05DC\u05E7" },
+  { id: "materials", label: "\u05D7\u05D5\u05DE\u05E8\u05D9\u05DD" },
+  { id: "tools",     label: "\u05DB\u05DC\u05D9\u05DD" },
+  { id: "platforms", label: "\u05D1\u05DE\u05D5\u05EA \u05D4\u05E8\u05DE\u05D4" },
+  { id: "credit",    label: "\u05D0\u05E9\u05E8\u05D0\u05D9" },
+  { id: "utilities", label: "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E9\u05D5\u05D8\u05E4\u05D9\u05DD" },
+  { id: "labor",     label: "\u05DB\u05D5\u05D7 \u05D0\u05D3\u05DD" },
+  { id: "taxes",     label: "\u05DE\u05E1\u05D9\u05DD \u05D5\u05D0\u05D2\u05E8\u05D5\u05EA" },
+  { id: "office",    label: "\u05E6\u05D9\u05D5\u05D3 \u05DE\u05E9\u05E8\u05D3\u05D9" },
+  { id: "software",  label: "\u05EA\u05D5\u05DB\u05E0\u05D5\u05EA \u05D5\u05E9\u05D9\u05E8\u05D5\u05EA\u05D9\u05DD" },
+  { id: "other",     label: "\u05D0\u05D7\u05E8" }
+];
 function nextBusinessDay(dateStr) {
   var d = new Date(dateStr);
   // Israel: Friday=5, Saturday=6 are non-working days
@@ -1921,22 +1937,48 @@ function calcPaymentDate(approvalDate, termId) {
   eom.setDate(eom.getDate() + t.days);
   return nextBusinessDay(eom.toISOString().slice(0, 10));
 }
+
+// ======== MIGRATION: suppliers v1 — מוסיף שדות ברירת מחדל לספקים קיימים ========
+async function migrateSuppliersV1() {
+  if (localStorage.getItem("cashflow_suppliers_migrated_v1")) return;
+  var all = await db.get("cashflow_suppliers") || [];
+  var needs = all.some(function(s){ return s.defaultCategory === undefined; });
+  if (!needs) { localStorage.setItem("cashflow_suppliers_migrated_v1","true"); return; }
+  var updated = all.map(function(s){
+    return Object.assign({
+      paymentTerms: "net30",
+      defaultCategory: "other",
+      customCategories: [],
+      isStandingOrder: false,
+      standingOrderType: null,
+      averageAmount: null
+    }, s);
+  });
+  await db.set("cashflow_suppliers", updated);
+  localStorage.setItem("cashflow_suppliers_migrated_v1","true");
+}
+
 // ======== SUPPLIER DIRECTORY ========
 function SupplierDirectory({ onClose }) {
   const [suppliers, setSuppliers] = React.useState([]);
   const [showForm, setShowForm] = React.useState(false);
-  const [form, setForm] = React.useState({ name: "", paymentTerms: "net30", notes: "" });
+  const [form, setForm] = React.useState({ name: "", paymentTerms: "net30", notes: "", defaultCategory: "other", customCategories: [], isStandingOrder: false, standingOrderType: null, averageAmount: null });
+  const [newCustomCat, setNewCustomCat] = React.useState("");
   const load = async () => setSuppliers(await db.get("cashflow_suppliers") || []);
   React.useEffect(() => { load(); }, []);
 
   const save = async () => {
-    if (!form.name) return;
+    if (!form.name) { alert("\u05E9\u05DD \u05E1\u05E4\u05E7 \u05D7\u05D5\u05D1\u05D4"); return; }
+    if (form.isStandingOrder && form.standingOrderType === "dynamic" && (!form.averageAmount || form.averageAmount <= 0)) {
+      alert("\u05D4\u05D5\u05E8\u05D0\u05EA \u05E7\u05D1\u05E2 \u05DE\u05E9\u05EA\u05E0\u05D4 \u05DE\u05D7\u05D9\u05D9\u05D1\u05EA \u05E1\u05DB\u05D5\u05DD \u05DE\u05DE\u05D5\u05E6\u05E2"); return;
+    }
     var all = await db.get("cashflow_suppliers") || [];
     var existing = all.findIndex(function(s){ return s.id === form.id; });
     if (existing >= 0) { all[existing] = form; }
     else { all = [...all, { ...form, id: genId() }]; }
     await db.set("cashflow_suppliers", all);
-    setForm({ name: "", paymentTerms: "net30", notes: "" });
+    setForm({ name: "", paymentTerms: "net30", notes: "", defaultCategory: "other", customCategories: [], isStandingOrder: false, standingOrderType: null, averageAmount: null });
+    setNewCustomCat("");
     setShowForm(false);
     load();
   };
@@ -1953,19 +1995,50 @@ function SupplierDirectory({ onClose }) {
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
         /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "\uD83C\uDFE2 \u05E1\u05E4\u05E7\u05D9\u05DD \u2014 \u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD"),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
-          /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function() { setForm({ name: "", paymentTerms: "net30", notes: "" }); setShowForm(true); } }, "+ \u05E1\u05E4\u05E7 \u05D7\u05D3\u05E9"),
+          /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function() { setForm({ name: "", paymentTerms: "net30", notes: "", defaultCategory: "other", customCategories: [], isStandingOrder: false, standingOrderType: null, averageAmount: null }); setNewCustomCat(""); setShowForm(true); } }, "+ \u05E1\u05E4\u05E7 \u05D7\u05D3\u05E9"),
           /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" } }, "\u00D7")
         )
       ),
       showForm && /* @__PURE__ */ React.createElement("div", { style: { background: "#f8fafc", borderRadius: 8, padding: 14, marginBottom: 14, border: "1px solid #e5e7eb" } },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginBottom: 10 } },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginBottom: 10 } },
           /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05DD \u05E1\u05E4\u05E7" }, /* @__PURE__ */ React.createElement(Input, { value: form.name, onChange: function(e){ setForm({...form, name: e.target.value}); }, placeholder: "\u05E9\u05DD \u05D4\u05E1\u05E4\u05E7..." })),
           /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD" }, /* @__PURE__ */ React.createElement(Select, { value: form.paymentTerms, onChange: function(e){ setForm({...form, paymentTerms: e.target.value}); } },
             PAYMENT_TERMS.map(function(t){ return /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label); })
+          )),
+          /* @__PURE__ */ React.createElement(Field, { label: "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 \u05D1\u05E8\u05D9\u05E8\u05EA \u05DE\u05D7\u05D3\u05DC" }, /* @__PURE__ */ React.createElement(Select, { value: form.defaultCategory || "other", onChange: function(e){ setForm({...form, defaultCategory: e.target.value}); } },
+            SUPPLIER_CATEGORIES.map(function(c){ return /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.label); })
           ))
         ),
         /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" }, /* @__PURE__ */ React.createElement(Input, { value: form.notes||"", onChange: function(e){ setForm({...form, notes: e.target.value}); }, placeholder: "\u05D0\u05D5\u05E4\u05E6\u05D9\u05D5\u05E0\u05DC\u05D9..." })),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8 } },
+        /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, padding: 10, background: "#fff", borderRadius: 6, border: "1px solid #e5e7eb" } },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: 600 } }, "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D5\u05EA \u05DE\u05D5\u05EA\u05D0\u05DE\u05D5\u05EA"),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 8 } },
+            /* @__PURE__ */ React.createElement(Input, { value: newCustomCat, onChange: function(e){ setNewCustomCat(e.target.value); }, placeholder: "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 \u05D7\u05D3\u05E9\u05D4..." }),
+            /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: function(){ var v = newCustomCat.trim(); if (!v) return; if ((form.customCategories||[]).indexOf(v) >= 0) return; setForm({...form, customCategories: [...(form.customCategories||[]), v]}); setNewCustomCat(""); } }, "+ \u05D4\u05D5\u05E1\u05E3")
+          ),
+          (form.customCategories||[]).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+            (form.customCategories||[]).map(function(c, i){
+              return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "#eff6ff", borderRadius: 12, fontSize: 12, color: "#2563eb" } },
+                c,
+                /* @__PURE__ */ React.createElement("button", { onClick: function(){ setForm({...form, customCategories: form.customCategories.filter(function(_,j){ return j!==i; })}); }, style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 12, padding: 0, marginRight: 2 } }, "\u2715")
+              );
+            })
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, padding: 10, background: "#fff", borderRadius: 6, border: "1px solid #e5e7eb" } },
+          /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 } },
+            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!form.isStandingOrder, onChange: function(e){ setForm({...form, isStandingOrder: e.target.checked, standingOrderType: e.target.checked ? (form.standingOrderType||"fixed") : null, averageAmount: e.target.checked ? form.averageAmount : null}); } }),
+            /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 600 } }, "\u05D6\u05D4\u05D5 \u05E1\u05E4\u05E7 \u05E9\u05DC \u05D4\u05D5\u05E8\u05D0\u05EA \u05E7\u05D1\u05E2")
+          ),
+          form.isStandingOrder && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 } },
+            /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D5\u05D2 \u05D4\u05D5\u05E8\u05D0\u05EA \u05E7\u05D1\u05E2" }, /* @__PURE__ */ React.createElement(Select, { value: form.standingOrderType || "fixed", onChange: function(e){ setForm({...form, standingOrderType: e.target.value}); } },
+              /* @__PURE__ */ React.createElement("option", { value: "fixed" }, "\u05E7\u05D1\u05D5\u05E2\u05D4"),
+              /* @__PURE__ */ React.createElement("option", { value: "dynamic" }, "\u05DE\u05E9\u05EA\u05E0\u05D4")
+            )),
+            form.standingOrderType === "dynamic" && /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05DB\u05D5\u05DD \u05DE\u05DE\u05D5\u05E6\u05E2 \u20AA" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.averageAmount || "", onChange: function(e){ setForm({...form, averageAmount: parseFloat(e.target.value) || null}); }, placeholder: "0" }))
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
           /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: function(){ setShowForm(false); } }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
           /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: save }, "\uD83D\uDCBE \u05E9\u05DE\u05D5\u05E8")
         )
@@ -2016,6 +2089,7 @@ function CashFlowPage() {
   const [deleteConfirmTx, setDeleteConfirmTx] = React.useState(null);
 
   const load = React.useCallback(async () => {
+    await migrateSuppliersV1();
     const [tx, cfg, invs, projs, supp, so] = await Promise.all([
       db.get("cashflow") || [],
       db.get("cashflow_settings") || {},
