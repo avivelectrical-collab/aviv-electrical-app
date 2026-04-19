@@ -2344,18 +2344,19 @@ function CashFlowPage() {
         /* @__PURE__ */ React.createElement("table", {style:{width:"100%",borderCollapse:"collapse",fontSize:13}},
           /* @__PURE__ */ React.createElement("thead", null,
             /* @__PURE__ */ React.createElement("tr", {style:{borderBottom:"2px solid #e5e7eb"}},
-              ["\u05EA\u05D0\u05E8\u05D9\u05DA","\u05EA\u05D9\u05D0\u05D5\u05E8","\u05E1\u05D5\u05D2","\u05E1\u05D8\u05D0\u05D8\u05D5\u05E1","\u05E1\u05DB\u05D5\u05DD \u05E6\u05E4\u05D5\u05D9","\u05E1\u05DB\u05D5\u05DD \u05D1\u05E4\u05D5\u05E2\u05DC","\u05D9\u05EA\u05E8\u05D4",""].map(function(h){return /* @__PURE__ */ React.createElement("th",{key:h,style:{padding:"7px 8px",textAlign:"right",color:"#6b7280",fontSize:11,fontWeight:600}},h);})
+              ["\u05EA\u05D0\u05E8\u05D9\u05DA","\u05EA\u05D9\u05D0\u05D5\u05E8","\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 / \u05E1\u05E4\u05E7","\u05E1\u05D5\u05D2","\u05E1\u05D8\u05D0\u05D8\u05D5\u05E1","\u05E1\u05DB\u05D5\u05DD \u05E6\u05E4\u05D5\u05D9","\u05E1\u05DB\u05D5\u05DD \u05D1\u05E4\u05D5\u05E2\u05DC","\u05D9\u05EA\u05E8\u05D4",""].map(function(h){return /* @__PURE__ */ React.createElement("th",{key:h,style:{padding:"7px 8px",textAlign:"right",color:"#6b7280",fontSize:11,fontWeight:600}},h);})
             )
           ),
           /* @__PURE__ */ React.createElement("tbody", null,
             (function(){
               var dayRows = balanceRows.filter(function(t){ return t.date && t.date.startsWith(dailyMonth); });
-              if (!dayRows.length) return /* @__PURE__ */ React.createElement("tr",null,/* @__PURE__ */ React.createElement("td",{colSpan:8,style:{padding:20,textAlign:"center",color:"#9ca3af"}},"\u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA \u05D1\u05D7\u05D5\u05D3\u05E9 \u05D6\u05D4"));
+              if (!dayRows.length) return /* @__PURE__ */ React.createElement("tr",null,/* @__PURE__ */ React.createElement("td",{colSpan:9,style:{padding:20,textAlign:"center",color:"#9ca3af"}},"\u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA \u05D1\u05D7\u05D5\u05D3\u05E9 \u05D6\u05D4"));
               return dayRows.map(function(t){
                 var isOverdue = t.paidStatus!=="paid" && t.scheduledDate && t.scheduledDate < new Date().toISOString().slice(0,10);
                 return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:isOverdue?"#fff5f5":t.paidStatus==="paid"?"#f0fdf4":"#fff"}},
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600,whiteSpace:"nowrap"}},t.date),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.desc),
+                  /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",color:"#6b7280",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.projectName||t.supplier||"\u2014"),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px"}},/* @__PURE__ */ React.createElement(Badge,{color:t.isIncome?"#059669":"#dc2626",small:true},t.isIncome?"\u05D4\u05DB\u05E0\u05E1\u05D4":"\u05D4\u05D5\u05E6\u05D0\u05D4")),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px"}},paidBadge(t)),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",color:"#6b7280"}},t.scheduledDate&&t.scheduledDate!==t.date?"\u20AA"+fmt(t.scheduledAmount||t.amount):"—"),
@@ -2378,15 +2379,16 @@ function CashFlowPage() {
       /* @__PURE__ */ React.createElement("table", {style:{width:"100%",borderCollapse:"collapse",fontSize:13}},
         /* @__PURE__ */ React.createElement("thead", null,
           /* @__PURE__ */ React.createElement("tr", {style:{borderBottom:"2px solid #e5e7eb"}},
-            ["\u05EA\u05D0\u05E8\u05D9\u05DA","\u05EA\u05D9\u05D0\u05D5\u05E8","\u05E1\u05D8\u05D0\u05D8\u05D5\u05E1","\u05E1\u05DB\u05D5\u05DD","\u05D9\u05EA\u05E8\u05D4",""].map(function(h){return /* @__PURE__ */ React.createElement("th",{key:h,style:{padding:"7px 8px",textAlign:"right",color:"#6b7280",fontSize:11,fontWeight:600}},h);})
+            ["\u05EA\u05D0\u05E8\u05D9\u05DA","\u05EA\u05D9\u05D0\u05D5\u05E8","\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 / \u05E1\u05E4\u05E7","\u05E1\u05D8\u05D0\u05D8\u05D5\u05E1","\u05E1\u05DB\u05D5\u05DD","\u05D9\u05EA\u05E8\u05D4",""].map(function(h){return /* @__PURE__ */ React.createElement("th",{key:h,style:{padding:"7px 8px",textAlign:"right",color:"#6b7280",fontSize:11,fontWeight:600}},h);})
           )
         ),
         /* @__PURE__ */ React.createElement("tbody", null,
-          balanceRows.length===0?/* @__PURE__ */ React.createElement("tr",null,/* @__PURE__ */ React.createElement("td",{colSpan:6,style:{padding:20,textAlign:"center",color:"#9ca3af"}},"\u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA")):
+          balanceRows.length===0?/* @__PURE__ */ React.createElement("tr",null,/* @__PURE__ */ React.createElement("td",{colSpan:7,style:{padding:20,textAlign:"center",color:"#9ca3af"}},"\u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA")):
           balanceRows.map(function(t){
             return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:t.paidStatus==="paid"?"#f0fdf4":t.type==="standing_order"?"#fafaf0":"#fff"}},
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600,whiteSpace:"nowrap"}},t.date),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.desc),
+              /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",color:"#6b7280",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.projectName||t.supplier||"\u2014"),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px"}},paidBadge(t)),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:700,color:t.isIncome?"#059669":"#dc2626"}},t.isIncome?"+":"-","\u20AA",fmt(t.amount)),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600,color:t.balance>=0?"#2563eb":"#dc2626"}},"\u20AA",fmt(t.balance)),
