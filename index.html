@@ -2005,7 +2005,7 @@ function CashFlowPage() {
   const [supplierScan, setSupplierScan] = React.useState(null);
   const [scanning, setScanning] = React.useState(false);
   const [showManualForm, setShowManualForm] = React.useState(false);
-  const [manualForm, setManualForm] = React.useState({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false });
+  const [manualForm, setManualForm] = React.useState({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false, projectId: "" });
   const [settingsForm, setSettingsForm] = React.useState(null);
   const [showSupplierDir, setShowSupplierDir] = React.useState(false);
   const [showStandingOrders, setShowStandingOrders] = React.useState(false);
@@ -2170,8 +2170,10 @@ function CashFlowPage() {
     if (!manualForm.desc || !manualForm.amount) return;
     var isIncome = manualForm.cat === "income" || manualForm.cat === "invoice";
     var all = await db.get("cashflow") || [];
-    await db.set("cashflow", [...all, { ...manualForm, id: genId(), amount: parseFloat(manualForm.amount)||0, isIncome, paidStatus: "pending", createdAt: new Date().toISOString() }]);
-    setManualForm({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false });
+    var proj = projects.find(function(p){ return p.id === manualForm.projectId; });
+    var projectName = proj ? proj.name : "";
+    await db.set("cashflow", [...all, { ...manualForm, projectName, id: genId(), amount: parseFloat(manualForm.amount)||0, isIncome, paidStatus: "pending", createdAt: new Date().toISOString() }]);
+    setManualForm({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false, projectId: "" });
     setShowManualForm(false);
     load();
   };
@@ -2474,6 +2476,12 @@ function CashFlowPage() {
           )),
           /* @__PURE__ */ React.createElement(Field,{label:"\u05EA\u05D9\u05D0\u05D5\u05E8"},/* @__PURE__ */ React.createElement(Input,{value:manualForm.desc,onChange:function(e){setManualForm({...manualForm,desc:e.target.value});}})),
           /* @__PURE__ */ React.createElement(Field,{label:"\u05E1\u05DB\u05D5\u05DD \u20AA"},/* @__PURE__ */ React.createElement(Input,{type:"number",value:manualForm.amount,onChange:function(e){setManualForm({...manualForm,amount:e.target.value});}}))
+        ),
+        /* @__PURE__ */ React.createElement("div",{style:{marginBottom:10}},
+          /* @__PURE__ */ React.createElement(Field,{label:"\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 / \u05DC\u05E7\u05D5\u05D7 (\u05D0\u05D5\u05E4\u05E6\u05D9\u05D5\u05E0\u05DC\u05D9)"},/* @__PURE__ */ React.createElement(Select,{value:manualForm.projectId,onChange:function(e){setManualForm({...manualForm,projectId:e.target.value});}},
+            /* @__PURE__ */ React.createElement("option",{value:""},"\u2014 \u05DC\u05DC\u05D0 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u2014"),
+            projects.map(function(p){return /* @__PURE__ */ React.createElement("option",{key:p.id,value:p.id},p.name);})
+          ))
         ),
         /* @__PURE__ */ React.createElement("div",{style:{display:"flex",gap:8}},
           /* @__PURE__ */ React.createElement(Btn,{variant:"outline",size:"sm",onClick:function(){setShowManualForm(false);}},"\u05D1\u05D9\u05D8\u05D5\u05DC"),
