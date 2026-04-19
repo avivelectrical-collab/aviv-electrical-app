@@ -2012,6 +2012,8 @@ function CashFlowPage() {
   const [tab, setTab] = React.useState("flow");
   const [dailyMonth, setDailyMonth] = React.useState(new Date().toISOString().slice(0,7));
   const [confirmTx, setConfirmTx] = React.useState(null); // {id, actualDate, actualAmount}
+  const [editingId, setEditingId] = React.useState(null);
+  const [deleteConfirmTx, setDeleteConfirmTx] = React.useState(null);
 
   const load = React.useCallback(async () => {
     const [tx, cfg, invs, projs, supp, so] = await Promise.all([
@@ -2159,6 +2161,19 @@ function CashFlowPage() {
     load();
   };
 
+  var editManual = function(t){
+    setManualForm({
+      date: t.date,
+      cat: t.cat,
+      desc: t.desc,
+      amount: String(t.amount),
+      isIncome: t.isIncome,
+      projectId: t.projectId || ""
+    });
+    setEditingId(t.id);
+    setShowManualForm(true);
+  };
+
   var delTx = async function(id, type) {
     if (!confirm("\u05DC\u05DE\u05D7\u05D5\u05E7?")) return;
     var all = await db.get("cashflow") || [];
@@ -2172,8 +2187,17 @@ function CashFlowPage() {
     var all = await db.get("cashflow") || [];
     var proj = projects.find(function(p){ return p.id === manualForm.projectId; });
     var projectName = proj ? proj.name : "";
-    await db.set("cashflow", [...all, { ...manualForm, projectName, id: genId(), amount: parseFloat(manualForm.amount)||0, isIncome, paidStatus: "pending", createdAt: new Date().toISOString() }]);
+    if (editingId) {
+      await db.set("cashflow", all.map(function(t){
+        return t.id === editingId
+          ? { ...t, ...manualForm, projectName, amount: parseFloat(manualForm.amount)||0, isIncome }
+          : t;
+      }));
+    } else {
+      await db.set("cashflow", [...all, { ...manualForm, projectName, id: genId(), amount: parseFloat(manualForm.amount)||0, isIncome, paidStatus: "pending", createdAt: new Date().toISOString() }]);
+    }
     setManualForm({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false, projectId: "" });
+    setEditingId(null);
     setShowManualForm(false);
     load();
   };
@@ -2396,7 +2420,10 @@ function CashFlowPage() {
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600,color:t.balance>=0?"#2563eb":"#dc2626"}},"\u20AA",fmt(t.balance)),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",display:"flex",gap:4}},
                 confirmBtn(t),
-                t.type!=="auto_income"&&t.type!=="standing_order"?/* @__PURE__ */ React.createElement("button",{onClick:function(){delTx(t.id,t.type);},style:{border:"none",background:"none",cursor:"pointer",color:"#dc2626"}},"\u2715"):null
+                t.type!=="auto_income"&&t.type!=="standing_order"?[
+                  /* @__PURE__ */ React.createElement("button",{key:"edit",title:"\u05E2\u05E8\u05D5\u05DA",onClick:function(){editManual(t);},style:{border:"none",background:"none",cursor:"pointer",color:"#2563eb",fontSize:13}},"\u270F\uFE0F"),
+                  /* @__PURE__ */ React.createElement("button",{key:"del",title:"\u05DE\u05D7\u05E7",onClick:function(){setDeleteConfirmTx(t);},style:{border:"none",background:"none",cursor:"pointer",color:"#dc2626",fontSize:13}},"\uD83D\uDDD1\uFE0F")
+                ]:null
               )
             );
           })
@@ -2462,10 +2489,23 @@ function CashFlowPage() {
       )
     ),
 
+    /* ====================== DELETE CONFIRM MODAL ====================== */
+    deleteConfirmTx && /* @__PURE__ */ React.createElement("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}},
+      /* @__PURE__ */ React.createElement(Card,{style:{minWidth:380,padding:20}},
+        /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,fontSize:15,marginBottom:8,color:"#dc2626"}},"\u26A0\uFE0F \u05DE\u05D7\u05D9\u05E7\u05EA \u05E9\u05D5\u05E8\u05D4"),
+        /* @__PURE__ */ React.createElement("div",{style:{fontSize:13,color:"#374151",marginBottom:6}},deleteConfirmTx.desc+" \u2014 \u20AA"+fmt(deleteConfirmTx.amount||0)),
+        /* @__PURE__ */ React.createElement("div",{style:{fontSize:13,color:"#6b7280",marginBottom:16}},"\u05D4\u05D0\u05DD \u05D0\u05EA\u05D4 \u05D1\u05D8\u05D5\u05D7 \u05E9\u05D1\u05E8\u05E6\u05D5\u05E0\u05DA \u05DC\u05DE\u05D7\u05D5\u05E7? \u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05E9\u05D7\u05D6\u05E8."),
+        /* @__PURE__ */ React.createElement("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          /* @__PURE__ */ React.createElement(Btn,{variant:"outline",size:"sm",onClick:function(){setDeleteConfirmTx(null);}},"\u05D1\u05D9\u05D8\u05D5\u05DC"),
+          /* @__PURE__ */ React.createElement(Btn,{size:"sm",onClick:async function(){var all=await db.get("cashflow")||[];await db.set("cashflow",all.filter(function(t){return t.id!==deleteConfirmTx.id;}));setDeleteConfirmTx(null);load();}},"\uD83D\uDDD1\uFE0F \u05DE\u05D7\u05E7")
+        )
+      )
+    ),
+
     /* ====================== MANUAL FORM MODAL ====================== */
     showManualForm && /* @__PURE__ */ React.createElement("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.3)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}},
       /* @__PURE__ */ React.createElement(Card,{style:{minWidth:440,padding:20}},
-        /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,fontSize:15,marginBottom:12}},"\u05E9\u05D5\u05E8\u05D4 \u05D9\u05D3\u05E0\u05D9\u05EA"),
+        /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,fontSize:15,marginBottom:12}},editingId?"\u270F\uFE0F \u05E2\u05E8\u05D9\u05DB\u05EA \u05E9\u05D5\u05E8\u05D4":"\u05E9\u05D5\u05E8\u05D4 \u05D9\u05D3\u05E0\u05D9\u05EA"),
         /* @__PURE__ */ React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
           /* @__PURE__ */ React.createElement(Field,{label:"\u05EA\u05D0\u05E8\u05D9\u05DA"},/* @__PURE__ */ React.createElement(Input,{type:"date",value:manualForm.date,onChange:function(e){setManualForm({...manualForm,date:e.target.value});}})),
           /* @__PURE__ */ React.createElement(Field,{label:"\u05E1\u05D5\u05D2"},/* @__PURE__ */ React.createElement(Select,{value:manualForm.cat,onChange:function(e){setManualForm({...manualForm,cat:e.target.value});}},
@@ -2484,7 +2524,7 @@ function CashFlowPage() {
           ))
         ),
         /* @__PURE__ */ React.createElement("div",{style:{display:"flex",gap:8}},
-          /* @__PURE__ */ React.createElement(Btn,{variant:"outline",size:"sm",onClick:function(){setShowManualForm(false);}},"\u05D1\u05D9\u05D8\u05D5\u05DC"),
+          /* @__PURE__ */ React.createElement(Btn,{variant:"outline",size:"sm",onClick:function(){setShowManualForm(false);setEditingId(null);}},"\u05D1\u05D9\u05D8\u05D5\u05DC"),
           /* @__PURE__ */ React.createElement(Btn,{size:"sm",onClick:saveManual},"\uD83D\uDCBE \u05E9\u05DE\u05D5\u05E8")
         )
       )
