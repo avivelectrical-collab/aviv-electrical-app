@@ -1934,12 +1934,12 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
         "\u05DB\u05DC\u05DC\u05D9\u05DD \u05E7\u05E9\u05D9\u05D7\u05D9\u05DD:",
         "1. \u05D4\u05D7\u05D6\u05E8 \u05D0\u05DA \u05D5\u05E8\u05E7 JSON \u05EA\u05E7\u05D9\u05DF. \u05DC\u05DC\u05D0 \u05D4\u05E1\u05D1\u05E8\u05D9\u05DD, \u05DC\u05DC\u05D0 markdown fences (```), \u05DC\u05DC\u05D0 \u05D8\u05E7\u05E1\u05D8 \u05DC\u05E4\u05E0\u05D9 \u05D0\u05D5 \u05D0\u05D7\u05E8\u05D9 \u05D4-JSON.",
         "2. \u05DE\u05D1\u05E0\u05D4 \u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 (\u05DB\u05DC \u05D4\u05E9\u05D3\u05D5\u05EA \u05D7\u05D5\u05D1\u05D4):",
-        "{\"supplier\":\"string\",\"invoiceNum\":\"string\"|null,\"invoiceDate\":\"YYYY-MM-DD\"|null,\"totalAmount\":number|null,\"vatAmount\":number|null,\"netAmount\":number|null,\"items\":[{\"name\":\"string\",\"unit\":\"string\",\"qty\":number,\"unitPrice\":number}],\"paymentTerms\":\"cash\"|\"net30\"|\"net45\"|\"net60\"|\"net90\"|null,\"notes\":\"string\",\"confidence\":0.0-1.0}",
+        "{\"supplier\":\"string\",\"invoiceNum\":\"string\"|null,\"invoiceDate\":\"YYYY-MM-DD\"|null,\"totalAmount\":number|null,\"vatAmount\":number|null,\"netAmount\":number|null,\"items\":[{\"itemCode\":\"string\"|null,\"name\":\"string\",\"unit\":\"string\",\"qty\":number,\"unitPrice\":number,\"totalPrice\":number|null,\"confidence\":0.0-1.0}],\"paymentTerms\":\"cash\"|\"net30\"|\"net45\"|\"net60\"|\"net90\"|null,\"notes\":\"string\",\"confidence\":0.0-1.0}",
         "3. \u05E2\u05E8\u05DB\u05D9\u05DD \u05D7\u05E1\u05E8\u05D9\u05DD/\u05DC\u05D0 \u05D1\u05E8\u05D5\u05E8\u05D9\u05DD \u2192 null (\u05DC\u05D0 \u05DE\u05D7\u05E8\u05D5\u05D6\u05EA \u05E8\u05D9\u05E7\u05D4, \u05DC\u05D0 \"\u05DC\u05D0 \u05D9\u05D3\u05D5\u05E2\").",
         "4. \u05E1\u05DB\u05D5\u05DE\u05D9\u05DD: \u05DE\u05E1\u05E4\u05E8\u05D9\u05DD \u05D1\u05DC\u05D1\u05D3, \u05D1\u05DC\u05D9 \u20AA \u05D5\u05D1\u05DC\u05D9 \u05E4\u05E1\u05D9\u05E7\u05D9\u05DD (\u05DC\u05DE\u05E9\u05DC: 12,345.00 \u2192 12345).",
         "5. \u05EA\u05D0\u05E8\u05D9\u05DB\u05D9\u05DD: ISO format YYYY-MM-DD \u05D1\u05DC\u05D1\u05D3.",
         "6. confidence \u05E0\u05DE\u05D5\u05DA \u05DE-0.7 \u05D0\u05DD \u05E9\u05D3\u05D5\u05EA \u05E7\u05E8\u05D9\u05D8\u05D9\u05D9\u05DD (\u05E1\u05E4\u05E7/\u05EA\u05D0\u05E8\u05D9\u05DA/\u05E1\u05DB\u05D5\u05DD \u05DB\u05D5\u05DC\u05DC) \u05DE\u05E2\u05D5\u05E8\u05E4\u05DC\u05D9\u05DD \u05D0\u05D5 \u05D7\u05E1\u05E8\u05D9\u05DD.",
-        "7. \u05D4\u05D9\u05D4 \u05DE\u05E6\u05D5\u05DE\u05E6\u05DD \u05D1\u05E4\u05E8\u05D9\u05D8\u05D9 items \u2014 \u05E8\u05E7 \u05D4\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D4\u05E2\u05D9\u05E7\u05E8\u05D9\u05D9\u05DD (\u05E2\u05D3 10 \u05E9\u05D5\u05E8\u05D5\u05EA). \u05D0\u05DC \u05EA\u05E4\u05E8\u05D8 \u05DB\u05DC \u05E9\u05D5\u05E8\u05D4 \u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA.",
+        "7. items \u2014 \u05D4\u05D5\u05E6\u05D0 \u05D0\u05EA \u05DB\u05DC \u05E9\u05D5\u05E8\u05D5\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA (\u05DC\u05DC\u05D0 \u05D4\u05D2\u05D1\u05DC\u05D4). \u05DC\u05DB\u05DC \u05E4\u05E8\u05D9\u05D8:\n   - itemCode: \u05E7\u05D5\u05D3 \u05E4\u05E8\u05D9\u05D8 \u05D0\u05DD \u05DE\u05D5\u05E4\u05D9\u05E2 (\u05D3\u05E4\u05D5\u05E1\u05D9\u05DD: MAT-XX, DEK-1234, SKU, \u05D9\u05E6\u05E8\u05DF+\u05D3\u05D2\u05DD). null \u05D0\u05DD \u05D0\u05D9\u05DF.\n   - name: \u05EA\u05D9\u05D0\u05D5\u05E8 \u05D4\u05E4\u05E8\u05D9\u05D8 \u05DB\u05E4\u05D9 \u05E9\u05DE\u05D5\u05E4\u05D9\u05E2.\n   - unit: \u05D9\u05D7\u05D9\u05D3\u05EA \u05DE\u05D9\u05D3\u05D4 (\u05DE', \u05D9\u05D7', \u05E7\"\u05D2). \u05D0\u05DD \u05DC\u05D0 \u05E6\u05D5\u05D9\u05DF \u2014 \"\u05D9\u05D7'\".\n   - qty: \u05DB\u05DE\u05D5\u05EA (\u05DE\u05E1\u05E4\u05E8).\n   - unitPrice: \u05DE\u05D7\u05D9\u05E8 \u05DC\u05D9\u05D7\u05D9\u05D3\u05D4 (\u05DC\u05E4\u05E0\u05D9 \u05DE\u05E2\"\u05DE \u05D0\u05DD \u05DE\u05D5\u05E6\u05D2).\n   - totalPrice: \u05E1\u05DB\u05D5\u05DD \u05D4\u05E9\u05D5\u05E8\u05D4 (unitPrice \u00D7 qty). null \u05D0\u05DD \u05DC\u05D0 \u05DE\u05D5\u05E6\u05D2 \u05D1\u05DE\u05E4\u05D5\u05E8\u05E9.\n   - confidence: 0.0-1.0 \u05D1\u05E8\u05DE\u05EA \u05D4\u05E4\u05E8\u05D9\u05D8 \u05D4\u05D6\u05D4.",
         "",
         "\u05DB\u05DC\u05DC\u05D9 \u05D4\u05D6\u05D4\u05D1 \u05E2\u05DC \u05D6\u05D9\u05D4\u05D5\u05D9 \u05E1\u05E4\u05E7:",
         "8. \u05D4-supplier \u05D4\u05D5\u05D0 \u05D4\u05DE\u05D5\u05DB\u05E8 \u05E9\u05D4\u05D5\u05E6\u05D9\u05D0 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA (\u05E1\u05E4\u05E7/\u05D7\u05E0\u05D5\u05EA/\u05D7\u05D1\u05E8\u05D4), \u05DC\u05D0 \u05D4\u05E7\u05D5\u05E0\u05D4/\u05D4\u05DC\u05E7\u05D5\u05D7. \u05D1\u05D3\u05E8\u05DB \u05DB\u05DC\u05DC \u05E9\u05DD \u05D4\u05DE\u05D5\u05DB\u05E8 \u05DE\u05D5\u05E4\u05D9\u05E2 \u05D1\u05E8\u05D0\u05E9 \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA, \u05DC\u05E2\u05D9\u05EA\u05D9\u05DD \u05E2\u05DD \u05DC\u05D5\u05D2\u05D5, \u05D5\u05DE\u05EA\u05D7\u05EA\u05D9\u05D5 \u05DE\u05D5\u05E4\u05D9\u05E2 '\u05DC\u05DB\u05D1\u05D5\u05D3' \u05D0\u05D5 '\u05DE\u05E9\u05D5\u05D2\u05E8 \u05DC'.",
@@ -1956,7 +1956,7 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
       var resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": (window.__anthropicKey || localStorage.getItem("__anthropicKey") || ""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, system: systemPrompt, messages: [{ role: "user", content: [fileBlock, { type: "text", text: userPrompt }] }] })
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 8000, system: systemPrompt, messages: [{ role: "user", content: [fileBlock, { type: "text", text: userPrompt }] }] })
       });
       var data = await resp.json();
 
@@ -1981,10 +1981,26 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
       try {
         parsed = JSON.parse(jsonStr);
       } catch (parseErr) {
-        console.error("[Claude] JSON parse failed:", parseErr.message);
-        console.error("[Claude] raw response:", txt);
-        console.error("[Claude] extracted JSON:", jsonStr);
-        throw new Error("\u05E9\u05D2\u05D9\u05D0\u05EA parsing: " + parseErr.message + ". \u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 \u05D1\u05E7\u05D5\u05E0\u05E1\u05D5\u05DC (F12). \u05E0\u05E1\u05D4 \u05E7\u05D5\u05D1\u05E5 \u05E7\u05D8\u05DF \u05D9\u05D5\u05EA\u05E8.");
+        // שיקום תגובה נחתכה: חותכים אחרי הפריט האחרון המלא ב-items array וסוגרים ידנית
+        var salvaged = null;
+        if (data.stop_reason === "max_tokens") {
+          var itemsStart = cleaned.indexOf("\"items\":[");
+          var lastCompleteItem = cleaned.lastIndexOf("},");
+          if (itemsStart >= 0 && lastCompleteItem > itemsStart) {
+            try {
+              salvaged = JSON.parse(cleaned.substring(0, lastCompleteItem + 1) + "]}");
+              console.warn("[Claude] \u05E9\u05D9\u05E7\u05D5\u05DD \u2014 \u05D7\u05D5\u05DC\u05E6\u05D5", (salvaged.items || []).length, "\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D7\u05DC\u05E7\u05D9\u05D9\u05DD (\u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 \u05E0\u05D7\u05EA\u05DB\u05D4 \u05D1-max_tokens)");
+            } catch (e2) { /* fall through */ }
+          }
+        }
+        if (salvaged) {
+          parsed = salvaged;
+        } else {
+          console.error("[Claude] JSON parse failed:", parseErr.message);
+          console.error("[Claude] raw response:", txt);
+          console.error("[Claude] extracted JSON:", jsonStr);
+          throw new Error("\u05E9\u05D2\u05D9\u05D0\u05EA parsing: " + parseErr.message + (data.stop_reason === "max_tokens" ? " (\u05EA\u05D2\u05D5\u05D1\u05D4 \u05E0\u05D7\u05EA\u05DB\u05D4 \u05D1-max_tokens \u2014 \u05E0\u05E1\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05E7\u05E6\u05E8\u05D4 \u05D9\u05D5\u05EA\u05E8)" : "") + ". \u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 \u05D1\u05E7\u05D5\u05E0\u05E1\u05D5\u05DC (F12).");
+        }
       }
 
       // 5. התאמת ספק — אם supplierId הועבר (בכרטיס ספק) — משתמש בו; אחרת match חופשי
@@ -2016,7 +2032,11 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
 // ---- Supplier Scan Approval Component ----
 function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCancel }) {
   const [payTerms, setPayTerms] = React.useState(scan.paymentTerms || "net30");
-  const [editScan, setEditScan] = React.useState({...scan});
+  const [editScan, setEditScan] = React.useState(function() {
+    return Object.assign({}, scan, {
+      items: (scan.items || []).map(function(it){ return Object.assign({ _saveToCatalog: true }, it); })
+    });
+  });
   var fmt = function(n){ return (Math.round(n||0)).toLocaleString("he-IL"); };
 
   // התאמת ספק מהרשימה — fuzzy case-insensitive (contains דו-כיווני)
@@ -2077,6 +2097,23 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
     onApprove(editScan, payTerms);
   };
 
+  // עריכת items (D-1b)
+  var updateItem = function(i, field, value) {
+    var newItems = (editScan.items || []).map(function(it, j){
+      if (j !== i) return it;
+      var updated = Object.assign({}, it);
+      updated[field] = value;
+      return updated;
+    });
+    setEditScan(Object.assign({}, editScan, { items: newItems }));
+  };
+  var removeItem = function(i) {
+    setEditScan(Object.assign({}, editScan, { items: (editScan.items || []).filter(function(_, j){ return j !== i; }) }));
+  };
+  var addItem = function() {
+    setEditScan(Object.assign({}, editScan, { items: (editScan.items || []).concat([{ itemCode: null, name: "", unit: "\u05D9\u05D7'", qty: 1, unitPrice: 0, totalPrice: null, _saveToCatalog: true }]) }));
+  };
+
   return /* @__PURE__ */ React.createElement("div", { style: { background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: 14, marginTop: 10 } },
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: 10 } },
       /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", fontSize: 13, flex: 1 } }, "\u2705 \u05D4-AI \u05D6\u05D9\u05D4\u05D4 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D5\u05D0\u05E9\u05E8"),
@@ -2096,13 +2133,35 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
     /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD \u05DC\u05E1\u05E4\u05E7", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement(Select, { value: payTerms, onChange: function(e){ setPayTerms(e.target.value); }, style: { maxWidth: 200 } },
       PAYMENT_TERMS.map(function(t){ return /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label); })
     )),
-    editScan.items && editScan.items.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, marginBottom: 8, fontSize: 11, color: "#374151" } },
-      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: "#6b7280", marginBottom: 4 } }, "\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05E9\u05D9\u05E2\u05D3\u05DB\u05E0\u05D5 \u05D1\u05DE\u05D7\u05D9\u05E8\u05D5\u05DF \u05E1\u05E4\u05E7\u05D9\u05DD:"),
-      editScan.items.map(function(item, i){
-        return /* @__PURE__ */ React.createElement("div", { key: i, style: { padding: "2px 0" } },
-          "\u2022 ", item.name, " \u2014 \u20AA", fmt(item.unitPrice), "/", (item.unit||"\u05D9\u05D7'")
-        );
-      })
+    /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, marginBottom: 8 } },
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: "#6b7280", fontSize: 12 } }, "\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD (" + (editScan.items || []).length + ")"),
+        /* @__PURE__ */ React.createElement("button", { onClick: addItem, style: { fontSize: 11, padding: "3px 10px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 4, cursor: "pointer", color: "#1d4ed8", fontWeight: 600, fontFamily: "inherit" } }, "+ \u05D4\u05D5\u05E1\u05E3 \u05E4\u05E8\u05D9\u05D8")
+      ),
+      (editScan.items || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 6, overflow: "hidden", fontSize: 11, background: "#fff" } },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "30px 80px 1fr 60px 60px 80px 80px 30px", gap: 4, padding: "6px 8px", background: "#f9fafb", fontWeight: 600, color: "#6b7280", fontSize: 10 } },
+          /* @__PURE__ */ React.createElement("div", null, "\u05E9\u05DE\u05D5\u05E8"),
+          /* @__PURE__ */ React.createElement("div", null, "\u05E7\u05D5\u05D3"),
+          /* @__PURE__ */ React.createElement("div", null, "\u05E9\u05DD"),
+          /* @__PURE__ */ React.createElement("div", null, "\u05D9\u05D7\u05D9\u05D3\u05D4"),
+          /* @__PURE__ */ React.createElement("div", null, "\u05DB\u05DE\u05D5\u05EA"),
+          /* @__PURE__ */ React.createElement("div", null, "\u20AA/\u05D9\u05D7'"),
+          /* @__PURE__ */ React.createElement("div", null, "\u05E1\u05D4\"\u05DB"),
+          /* @__PURE__ */ React.createElement("div", null, "")
+        ),
+        editScan.items.map(function(item, i) {
+          return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "30px 80px 1fr 60px 60px 80px 80px 30px", gap: 4, padding: "4px 8px", borderTop: "1px solid #f3f4f6", alignItems: "center" } },
+            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: item._saveToCatalog !== false, onChange: function(e){ updateItem(i, "_saveToCatalog", e.target.checked); }, title: "\u05E9\u05DE\u05D5\u05E8 \u05DC\u05E7\u05D8\u05DC\u05D5\u05D2" }),
+            /* @__PURE__ */ React.createElement("input", { value: item.itemCode || "", onChange: function(e){ updateItem(i, "itemCode", e.target.value || null); }, placeholder: "\u2014", style: { fontSize: 11, padding: "3px 5px", border: "1px solid #e5e7eb", borderRadius: 3, width: "100%", fontFamily: "inherit" } }),
+            /* @__PURE__ */ React.createElement("input", { value: item.name || "", onChange: function(e){ updateItem(i, "name", e.target.value); }, style: { fontSize: 11, padding: "3px 5px", border: "1px solid #e5e7eb", borderRadius: 3, width: "100%", fontFamily: "inherit" } }),
+            /* @__PURE__ */ React.createElement("input", { value: item.unit || "", onChange: function(e){ updateItem(i, "unit", e.target.value); }, style: { fontSize: 11, padding: "3px 5px", border: "1px solid #e5e7eb", borderRadius: 3, width: "100%", fontFamily: "inherit" } }),
+            /* @__PURE__ */ React.createElement("input", { type: "number", value: item.qty == null ? "" : item.qty, onChange: function(e){ updateItem(i, "qty", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0); }, style: { fontSize: 11, padding: "3px 5px", border: "1px solid #e5e7eb", borderRadius: 3, width: "100%", fontFamily: "inherit" } }),
+            /* @__PURE__ */ React.createElement("input", { type: "number", value: item.unitPrice == null ? "" : item.unitPrice, onChange: function(e){ updateItem(i, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0); }, style: { fontSize: 11, padding: "3px 5px", border: "1px solid #e5e7eb", borderRadius: 3, width: "100%", fontFamily: "inherit" } }),
+            /* @__PURE__ */ React.createElement("input", { type: "number", value: item.totalPrice == null ? "" : item.totalPrice, onChange: function(e){ updateItem(i, "totalPrice", e.target.value === "" ? null : parseFloat(e.target.value) || 0); }, placeholder: "\u2014", style: { fontSize: 11, padding: "3px 5px", border: "1px solid #e5e7eb", borderRadius: 3, width: "100%", fontFamily: "inherit" } }),
+            /* @__PURE__ */ React.createElement("button", { onClick: function(){ removeItem(i); }, title: "\u05DE\u05D7\u05E7", style: { border: "none", background: "#fee2e2", borderRadius: 3, cursor: "pointer", color: "#dc2626", fontSize: 11, padding: "2px", fontFamily: "inherit" } }, "\u2715")
+          );
+        })
+      )
     ),
     duplicates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fee2e2", border: "1px solid #fecaca", borderRadius: 6, padding: 8, marginTop: 10, marginBottom: 4, fontSize: 12, color: "#991b1b" } },
       /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, marginBottom: 2 } }, "\u26A0\uFE0F \u05D7\u05E9\u05E9 \u05DB\u05E4\u05D9\u05DC\u05D5\u05EA \u2014 \u05E0\u05DE\u05E6\u05D0\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D3\u05D5\u05DE\u05D4 (" + duplicates.length + "):"),
@@ -2748,7 +2807,7 @@ function CashFlowPage() {
       vatAmount: (typeof scan.vatAmount === "number") ? scan.vatAmount : null,
       netAmount: (typeof scan.netAmount === "number") ? scan.netAmount : null,
       paymentTerms: payTerms || scan.paymentTerms || "net30",
-      items: scan.items || [],
+      items: (scan.items || []).map(function(it){ var c = Object.assign({}, it); delete c._saveToCatalog; return c; }),
       notes: scan.notes || "",
       confidence: (typeof scan.confidence === "number") ? scan.confidence : null,
       fileUrl: savedFileUrl,
@@ -2784,19 +2843,74 @@ function CashFlowPage() {
     var allCashflow = await db.get("cashflow") || [];
     await db.set("cashflow", [...allCashflow, transaction]);
 
-    // 4. עדכון מחירון supplier_items (ללא שינוי מההתנהגות המקורית)
+    // 4. כתיבה ל-invoice_items — רשומה פר-פריט פר-חשבונית (D-1c: בסיס ל-D-2/D-3/D-4)
     if (scan.items && scan.items.length) {
+      var allInvoiceItems = await db.get("invoice_items") || [];
+      var newInvoiceItems = scan.items.map(function(it) {
+        return {
+          id: genId(),
+          supplierInvoiceId: supplierInvoiceId,
+          transactionId: transactionId,
+          supplier: scan.supplier || "",
+          invoiceDate: scan.invoiceDate || null,
+          itemCode: it.itemCode || null,
+          name: it.name || "",
+          unit: it.unit || "\u05D9\u05D7'",
+          qty: typeof it.qty === "number" ? it.qty : 0,
+          unitPrice: typeof it.unitPrice === "number" ? it.unitPrice : 0,
+          totalPrice: typeof it.totalPrice === "number" ? it.totalPrice : null,
+          confidence: typeof it.confidence === "number" ? it.confidence : null,
+          category: null,
+          savedToCatalog: it._saveToCatalog !== false,
+          approved: true,
+          createdAt: now
+        };
+      });
+      await db.set("invoice_items", allInvoiceItems.concat(newInvoiceItems));
+    }
+
+    // 5. עדכון מחירון supplier_items — רק פריטים מסומנים "שמור", matching לפי itemCode/name-normalized, history array (D-1c)
+    var itemsToCatalog = (scan.items || []).filter(function(it){ return it._saveToCatalog !== false && it.name && typeof it.unitPrice === "number" && it.unitPrice > 0; });
+    if (itemsToCatalog.length) {
       var supp = await db.get("supplier_items") || [];
-      scan.items.forEach(function(item){
-        if (!item.name || !item.unitPrice) return;
-        var ex = supp.find(function(s){ return s.name === item.name; });
-        if (ex) { ex.price = item.unitPrice; ex.lastUpdated = scan.invoiceDate; }
-        else { supp.push({ id: genId(), cat: scan.supplier||"\u05DB\u05DC\u05DC\u05D9", name: item.name, unit: item.unit||"\u05D9\u05D7'", price: item.unitPrice, firstPrice: item.unitPrice, history: "", lastUpdated: scan.invoiceDate }); }
+      var histDate = scan.invoiceDate || now.slice(0, 10);
+      itemsToCatalog.forEach(function(item) {
+        var normName = (item.name || "").trim().toLowerCase();
+        // Match: itemCode ראשית (אם קיים), אחר כך name מנורמל
+        var ex = null;
+        if (item.itemCode) {
+          ex = supp.find(function(s){ return s.itemCode && s.itemCode === item.itemCode; });
+        }
+        if (!ex) {
+          ex = supp.find(function(s){ return (s.name || "").trim().toLowerCase() === normName; });
+        }
+        var histEntry = { price: item.unitPrice, date: histDate, invoiceId: supplierInvoiceId };
+        if (ex) {
+          // מיגרציה שקטה: history string ריק → array
+          if (!Array.isArray(ex.history)) ex.history = [];
+          // הוספה ל-history רק אם המחיר השתנה (למנוע רעש)
+          if (ex.price !== item.unitPrice) ex.history.push(histEntry);
+          ex.price = item.unitPrice;
+          ex.lastUpdated = histDate;
+          if (item.itemCode && !ex.itemCode) ex.itemCode = item.itemCode;
+        } else {
+          supp.push({
+            id: genId(),
+            cat: scan.supplier || "\u05DB\u05DC\u05DC\u05D9",
+            itemCode: item.itemCode || null,
+            name: item.name,
+            unit: item.unit || "\u05D9\u05D7'",
+            price: item.unitPrice,
+            firstPrice: item.unitPrice,
+            history: [histEntry],
+            lastUpdated: histDate
+          });
+        }
       });
       await db.set("supplier_items", supp);
     }
 
-    // 5. התראה אם הקובץ היה גדול מדי לשמירה
+    // 6. התראה אם הקובץ היה גדול מדי לשמירה
     if (fileUrlDropped) {
       alert("\u26A0\uFE0F \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05E0\u05E9\u05DE\u05E8\u05D4, \u05D0\u05D1\u05DC \u05D4\u05E7\u05D5\u05D1\u05E5 \u05E2\u05E6\u05DE\u05D5 \u05DC\u05D0 \u05E0\u05E9\u05DE\u05E8 (>500KB). \u05EA\u05E7\u05DF billing \u05D1-Firebase \u05DC\u05D4\u05E4\u05E2\u05DC\u05EA Storage \u05D0\u05DE\u05D9\u05EA\u05D9\u05EA.");
     }
