@@ -1775,10 +1775,34 @@ function FinancialPage() {
 const CF_CATS = { income: "\u05D4\u05DB\u05E0\u05E1\u05D4", expense: "\u05D4\u05D5\u05E6\u05D0\u05D4", invoice: "\u05D7\u05E9\u05D1\u05D5\u05DF \u05DC\u05E7\u05D5\u05D7", salary: "\u05E9\u05DB\u05E8", other: "\u05D0\u05D7\u05E8" };
 const CF_COLORS = { income: "#059669", expense: "#dc2626", invoice: "#2563eb", salary: "#d97706", other: "#6b7280" };
 
-function StandingOrdersManager({ onClose }) {
+// ---- Standing Order Variance Modal — עריכת סכום להוראת קבע דינמית + אזהרת חריגה (סשן C-8/SO) ----
+function SOVarianceModal({ tx, averageAmount, onConfirm, onCancel }) {
+  const [amount, setAmount] = React.useState(String(averageAmount || ""));
+  var fmt = function(n) { return Math.round(n||0).toLocaleString("he-IL"); };
+  var parsed = parseFloat(amount) || 0;
+  var variance = averageAmount > 0 ? Math.abs(parsed - averageAmount) / averageAmount : 0;
+  var showWarning = parsed > 0 && variance > 0.2;
+  return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.45)", zIndex: 350, display: "flex", alignItems: "center", justifyContent: "center" } },
+    /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: 22, width: 420, boxShadow: "0 8px 32px #0004" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15, marginBottom: 4 } }, "\u270F\uFE0F \u05E2\u05E8\u05D9\u05DB\u05EA \u05E1\u05DB\u05D5\u05DD \u2014 \u05D4\u05D5\u05E8\u05D0\u05EA \u05E7\u05D1\u05E2 \u05D3\u05D9\u05E0\u05DE\u05D9\u05EA"),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 12 } }, tx.desc),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 8 } }, "\u05D4\u05DE\u05DE\u05D5\u05E6\u05E2: \u20AA" + fmt(averageAmount)),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05DB\u05D5\u05DD \u05D1\u05E4\u05D5\u05E2\u05DC \u20AA", style: { marginBottom: 10 } },
+        /* @__PURE__ */ React.createElement(Input, { type: "number", value: amount, onChange: function(e){ setAmount(e.target.value); }, autoFocus: true })
+      ),
+      showWarning && /* @__PURE__ */ React.createElement("div", { style: { background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d", borderRadius: 6, padding: 8, fontSize: 12, marginBottom: 10, fontWeight: 600 } }, "\u26A0\uFE0F \u05D4\u05E1\u05DB\u05D5\u05DD \u05D7\u05D5\u05E8\u05D2 \u05DE\u05D4\u05DE\u05DE\u05D5\u05E6\u05E2 \u05D1-" + Math.round(variance*100) + "%"),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 6 } },
+        /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: onCancel }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
+        /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function(){ if (parsed > 0) onConfirm(parsed); }, disabled: parsed <= 0 }, "\u2714 \u05D0\u05E9\u05E8 \u05D5\u05E9\u05DE\u05D5\u05E8")
+      )
+    )
+  );
+}
+
+function StandingOrdersManager({ cfSuppliers, onClose }) {
   const [orders, setOrders] = React.useState([]);
   const [showForm, setShowForm] = React.useState(false);
-  const [form, setForm] = React.useState({ name: "", amount: "", cat: "expense", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true });
+  const [form, setForm] = React.useState({ name: "", amount: "", cat: "expense", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true, supplierId: "" });
 
   const load = async () => setOrders(await db.get("cashflow_standing_orders") || []);
   React.useEffect(() => { load(); }, []);
@@ -1790,7 +1814,7 @@ function StandingOrdersManager({ onClose }) {
     var item = { ...form, amount: parseFloat(form.amount)||0, isIncome: form.cat === "income" };
     if (idx >= 0) { all[idx] = item; } else { all = [...all, { ...item, id: genId() }]; }
     await db.set("cashflow_standing_orders", all);
-    setForm({ name: "", amount: "", cat: "expense", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true });
+    setForm({ name: "", amount: "", cat: "expense", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true, supplierId: "" });
     setShowForm(false);
     load();
   };
@@ -1813,7 +1837,7 @@ function StandingOrdersManager({ onClose }) {
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
         /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "\uD83D\uDD01 \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2"),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
-          /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function(){ setForm({ name:"",amount:"",cat:"expense",isIncome:false,dayOfMonth:1,startDate:new Date().toISOString().slice(0,7),endDate:"",active:true }); setShowForm(true); } }, "+ \u05D4\u05D5\u05E1\u05E3 \u05D7\u05D3\u05E9\u05D4"),
+          /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function(){ setForm({ name:"",amount:"",cat:"expense",isIncome:false,dayOfMonth:1,startDate:new Date().toISOString().slice(0,7),endDate:"",active:true,supplierId:"" }); setShowForm(true); } }, "+ \u05D4\u05D5\u05E1\u05E3 \u05D7\u05D3\u05E9\u05D4"),
           /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" } }, "\u00D7")
         )
       ),
@@ -1832,6 +1856,14 @@ function StandingOrdersManager({ onClose }) {
           )),
           /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D7\u05D9\u05DC\u05EA \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA" }, /* @__PURE__ */ React.createElement(Input, { type: "month", value: form.startDate, onChange: function(e){ setForm({...form,startDate:e.target.value}); } })),
           /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D9\u05D5\u05DD \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA (\u05E8\u05E9\u05D5\u05EA)" }, /* @__PURE__ */ React.createElement(Input, { type: "month", value: form.endDate||"", onChange: function(e){ setForm({...form,endDate:e.target.value}); }, placeholder: "\u05DC\u05DC\u05D0 \u05E1\u05D9\u05D5\u05DD" }))
+        ),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05E4\u05E7 \u05DE\u05E7\u05D5\u05E9\u05E8 (\u05D0\u05D5\u05E4\u05E6\u05D9\u05D5\u05E0\u05DC\u05D9 \u2014 \u05DC\u05D6\u05D9\u05D4\u05D5\u05D9 \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2 \u05D3\u05D9\u05E0\u05DE\u05D9\u05D5\u05EA)", style: { marginBottom: 10 } },
+          /* @__PURE__ */ React.createElement(Select, { value: form.supplierId || "", onChange: function(e){ setForm({...form, supplierId: e.target.value}); } },
+            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05DC\u05DC\u05D0 \u05E7\u05D9\u05E9\u05D5\u05E8 \u2014"),
+            ((cfSuppliers||[]).filter(function(s){ return s.isStandingOrder; })).map(function(s){
+              return /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name + " (" + (s.standingOrderType === "dynamic" ? "\u05D3\u05D9\u05E0\u05DE\u05D9" : "\u05E7\u05D1\u05D5\u05E2") + ")");
+            })
+          )
         ),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
           /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: function(){ setShowForm(false); } }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
@@ -2146,12 +2178,205 @@ async function migrateSuppliersV1() {
   localStorage.setItem("cashflow_suppliers_migrated_v1","true");
 }
 
+// ======== OVERDUE JOB — עדכון אוטומטי pending↔overdue לפי תאריך תשלום (סשן C-8) ========
+async function updateOverdueStatus() {
+  var today = new Date().toISOString().slice(0, 10);
+
+  // Cashflow — דו-כיווני: pending→overdue אם תאריך עבר; overdue→pending אם תאריך הוזז לעתיד
+  var allCf = await db.get("cashflow") || [];
+  var cfChanged = false;
+  var newCf = allCf.map(function(t) {
+    var due = t.scheduledDate || t.date;
+    if (t.paidStatus === "pending" && due && due < today) {
+      cfChanged = true;
+      return { ...t, paidStatus: "overdue" };
+    }
+    if (t.paidStatus === "overdue" && (!due || due >= today)) {
+      cfChanged = true;
+      return { ...t, paidStatus: "pending" };
+    }
+    return t;
+  });
+  if (cfChanged) await db.set("cashflow", newCf);
+
+  // Supplier invoices — אותה לוגיקה על paymentDate + status
+  var allInv = await db.get("supplier_invoices") || [];
+  var invChanged = false;
+  var newInv = allInv.map(function(inv) {
+    var due = inv.paymentDate;
+    if (inv.status === "pending" && due && due < today) {
+      invChanged = true;
+      return { ...inv, status: "overdue" };
+    }
+    if (inv.status === "overdue" && (!due || due >= today)) {
+      invChanged = true;
+      return { ...inv, status: "pending" };
+    }
+    return inv;
+  });
+  if (invChanged) await db.set("supplier_invoices", newInv);
+}
+
+// ---- Invoice Details Modal — תצוגת חשבוניות של ספק בודד (סשן C-7) ----
+function SupplierInvoicesModal({ supplier, supplierInvoices, projects, onClose }) {
+  const [yearFilter, setYearFilter] = React.useState("all");
+  const [monthFilter, setMonthFilter] = React.useState("all");
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  var fmt = function(n) { return (Math.round(n||0)).toLocaleString("he-IL"); };
+
+  // סינון לספק הנוכחי (contains דו-כיווני, case-insensitive — תואם ל-SupplierScanApproval)
+  var myInvoices = React.useMemo(function() {
+    var key = (supplier.name || "").trim().toLowerCase();
+    if (!key) return [];
+    return (supplierInvoices || []).filter(function(inv) {
+      var s = (inv.supplier || "").trim().toLowerCase();
+      return s && (s.indexOf(key) >= 0 || key.indexOf(s) >= 0);
+    });
+  }, [supplier.name, supplierInvoices]);
+
+  // שנים זמינות ל-dropdown
+  var years = React.useMemo(function() {
+    var set = new Set();
+    myInvoices.forEach(function(inv) {
+      var y = (inv.invoiceDate || "").slice(0, 4);
+      if (y) set.add(y);
+    });
+    return Array.from(set).sort().reverse();
+  }, [myInvoices]);
+
+  // סינון סופי
+  var filtered = React.useMemo(function() {
+    return myInvoices.filter(function(inv) {
+      var d = inv.invoiceDate || "";
+      if (yearFilter !== "all" && d.slice(0, 4) !== yearFilter) return false;
+      if (monthFilter !== "all" && d.slice(5, 7) !== monthFilter) return false;
+      if (statusFilter !== "all" && inv.status !== statusFilter) return false;
+      return true;
+    }).sort(function(a, b) { return (b.invoiceDate || "").localeCompare(a.invoiceDate || ""); });
+  }, [myInvoices, yearFilter, monthFilter, statusFilter]);
+
+  // סיכומים (שנה נוכחית / חודש נוכחי / ממתין לתשלום)
+  var totals = React.useMemo(function() {
+    var thisYear = String(new Date().getFullYear());
+    var thisMonth = new Date().toISOString().slice(5, 7);
+    var year = 0, month = 0, pending = 0;
+    myInvoices.forEach(function(inv) {
+      var amt = inv.totalAmount || 0;
+      var d = inv.invoiceDate || "";
+      if (d.slice(0, 4) === thisYear) year += amt;
+      if (d.slice(0, 7) === thisYear + "-" + thisMonth) month += amt;
+      if (inv.status === "pending" || inv.status === "overdue") pending += amt;
+    });
+    return { year: year, month: month, pending: pending };
+  }, [myInvoices]);
+
+  var statusBadge = function(st) {
+    var map = {
+      pending: { bg: "#fef3c7", fg: "#92400e", label: "\u05DE\u05DE\u05EA\u05D9\u05DF" },
+      overdue: { bg: "#fee2e2", fg: "#991b1b", label: "\u05D1\u05D0\u05D9\u05D7\u05D5\u05E8" },
+      paid: { bg: "#d1fae5", fg: "#065f46", label: "\u05E9\u05D5\u05DC\u05DD" }
+    };
+    var c = map[st] || { bg: "#f3f4f6", fg: "#6b7280", label: st || "\u2014" };
+    return /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: c.bg, color: c.fg, borderRadius: 10, fontSize: 11, fontWeight: 600 } }, c.label);
+  };
+
+  var openInvoiceFile = function(inv) {
+    if (!inv.fileUrl) return;
+    try {
+      if (inv.fileUrl.indexOf("data:") === 0) {
+        // דפדפנים חוסמים פתיחה ישירה של data URL — ממירים ל-Blob URL
+        var comma = inv.fileUrl.indexOf(",");
+        var header = inv.fileUrl.slice(5, comma);
+        var mime = header.split(";")[0];
+        var b64Data = inv.fileUrl.slice(comma + 1);
+        var byteChars = atob(b64Data);
+        var bytes = new Uint8Array(byteChars.length);
+        for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+        var blob = new Blob([bytes], { type: mime });
+        var url = URL.createObjectURL(blob);
+        var w = window.open(url, "_blank");
+        if (!w) {
+          alert("\u05E0\u05D7\u05E1\u05DD popup. \u05D0\u05E4\u05E9\u05E8 popups \u05DC\u05D0\u05EA\u05E8 \u05DB\u05D3\u05D9 \u05DC\u05E6\u05E4\u05D5\u05EA \u05D1\u05E7\u05D5\u05D1\u05E5.");
+          URL.revokeObjectURL(url);
+          return;
+        }
+        // שחרור ה-Object URL לאחר דקה (נותנים לדפדפן לסיים לטעון)
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+      } else {
+        // URL אמיתי (Storage/HTTP) — פתיחה ישירה
+        window.open(inv.fileUrl, "_blank");
+      }
+    } catch (err) {
+      console.error("[openInvoiceFile]", err);
+      alert("\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05E4\u05EA\u05D9\u05D7\u05EA \u05D4\u05E7\u05D5\u05D1\u05E5: " + err.message);
+    }
+  };
+  var months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+
+  return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" } },
+    /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 12, padding: 24, width: 760, maxWidth: "95vw", maxHeight: "85vh", overflow: "auto", boxShadow: "0 8px 32px #0004" } },
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid #e5e7eb" } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "\uD83D\uDCC4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05E9\u05DC " + supplier.name + " (" + myInvoices.length + ")"),
+        /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" } }, "\u00D7")
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 14, fontSize: 12, flexWrap: "wrap" } },
+        /* @__PURE__ */ React.createElement("div", { style: { padding: "6px 12px", background: "#eff6ff", borderRadius: 6, color: "#1e40af", fontWeight: 600 } }, "\u05E1\u05D4\"\u05DB \u05D4\u05E9\u05E0\u05D4: \u20AA" + fmt(totals.year)),
+        /* @__PURE__ */ React.createElement("div", { style: { padding: "6px 12px", background: "#f0fdf4", borderRadius: 6, color: "#166534", fontWeight: 600 } }, "\u05E1\u05D4\"\u05DB \u05D4\u05D7\u05D5\u05D3\u05E9: \u20AA" + fmt(totals.month)),
+        /* @__PURE__ */ React.createElement("div", { style: { padding: "6px 12px", background: "#fef3c7", borderRadius: 6, color: "#92400e", fontWeight: 600 } }, "\u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05EA\u05E9\u05DC\u05D5\u05DD: \u20AA" + fmt(totals.pending))
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, alignItems: "center", fontSize: 12 } },
+        /* @__PURE__ */ React.createElement("span", { style: { color: "#6b7280" } }, "\u05E1\u05D9\u05E0\u05D5\u05DF:"),
+        /* @__PURE__ */ React.createElement(Select, { value: yearFilter, onChange: function(e){ setYearFilter(e.target.value); }, style: { maxWidth: 140 } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05DB\u05DC \u05D4\u05E9\u05E0\u05D9\u05DD"),
+          years.map(function(y) { return /* @__PURE__ */ React.createElement("option", { key: y, value: y }, y); })
+        ),
+        /* @__PURE__ */ React.createElement(Select, { value: monthFilter, onChange: function(e){ setMonthFilter(e.target.value); }, style: { maxWidth: 140 } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05DB\u05DC \u05D4\u05D7\u05D5\u05D3\u05E9\u05D9\u05DD"),
+          months.map(function(m) { return /* @__PURE__ */ React.createElement("option", { key: m, value: m }, m); })
+        ),
+        /* @__PURE__ */ React.createElement(Select, { value: statusFilter, onChange: function(e){ setStatusFilter(e.target.value); }, style: { maxWidth: 140 } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05DB\u05DC \u05D4\u05E1\u05D8\u05D8\u05D5\u05E1\u05D9\u05DD"),
+          /* @__PURE__ */ React.createElement("option", { value: "pending" }, "\u05DE\u05DE\u05EA\u05D9\u05DF"),
+          /* @__PURE__ */ React.createElement("option", { value: "overdue" }, "\u05D1\u05D0\u05D9\u05D7\u05D5\u05E8"),
+          /* @__PURE__ */ React.createElement("option", { value: "paid" }, "\u05E9\u05D5\u05DC\u05DD")
+        )
+      ),
+      filtered.length === 0
+        ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 32, color: "#9ca3af", fontSize: 13 } }, myInvoices.length === 0 ? "\u05D0\u05D9\u05DF \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05DC\u05E1\u05E4\u05E7 \u05D6\u05D4 \u05E2\u05D3\u05D9\u05D9\u05DF" : "\u05D0\u05D9\u05DF \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05EA\u05D5\u05D0\u05DE\u05D5\u05EA \u05DC\u05E1\u05D9\u05E0\u05D5\u05DF")
+        : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb" } },
+              ["\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA", "\u05DE\u05E1' \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA", "\u05E1\u05DB\u05D5\u05DD", "\u05E1\u05D8\u05D8\u05D5\u05E1", "\u05EA\u05D0\u05E8\u05D9\u05DA \u05EA\u05E9\u05DC\u05D5\u05DD", "\u05E7\u05D5\u05D1\u05E5"].map(function(h) {
+                return /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontWeight: 600, fontSize: 11 } }, h);
+              })
+            )),
+            /* @__PURE__ */ React.createElement("tbody", null,
+              filtered.map(function(inv) {
+                return /* @__PURE__ */ React.createElement("tr", { key: inv.id, style: { borderBottom: "1px solid #f3f4f6" } },
+                  /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px" } }, inv.invoiceDate || "\u2014"),
+                  /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px" } }, inv.supplierInvoiceNum || "\u2014"),
+                  /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px", fontWeight: 600 } }, "\u20AA" + fmt(inv.totalAmount)),
+                  /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px" } }, statusBadge(inv.status)),
+                  /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px", color: "#6b7280" } }, inv.paymentDate || "\u2014"),
+                  /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px" } },
+                    inv.fileUrl
+                      ? /* @__PURE__ */ React.createElement("button", { onClick: function(){ openInvoiceFile(inv); }, title: "\u05E4\u05EA\u05D7 \u05E7\u05D5\u05D1\u05E5", style: { border: "none", background: "none", cursor: "pointer", color: "#2563eb", fontSize: 16, padding: 0 } }, "\uD83D\uDCC4")
+                      : /* @__PURE__ */ React.createElement("span", { title: "\u05E7\u05D5\u05D1\u05E5 \u05DC\u05D0 \u05E0\u05E9\u05DE\u05E8 (\u05E2\u05D1\u05E8 500KB \u2014 \u05EA\u05E7\u05DF billing \u05DC-Storage)", style: { color: "#9ca3af", fontSize: 11, cursor: "help" } }, "\u2014")
+                  )
+                );
+              })
+            )
+          )
+    )
+  );
+}
+
 // ======== SUPPLIER DIRECTORY ========
-function SupplierDirectory({ onClose }) {
+function SupplierDirectory({ supplierInvoices, projects, onClose }) {
   const [suppliers, setSuppliers] = React.useState([]);
   const [showForm, setShowForm] = React.useState(false);
   const [form, setForm] = React.useState({ name: "", paymentTerms: "net30", notes: "", defaultCategory: "other", customCategories: [], isStandingOrder: false, standingOrderType: null, averageAmount: null });
   const [newCustomCat, setNewCustomCat] = React.useState("");
+  const [detailSupplier, setDetailSupplier] = React.useState(null);
   const load = async () => setSuppliers(await db.get("cashflow_suppliers") || []);
   React.useEffect(() => { load(); }, []);
 
@@ -2244,6 +2469,7 @@ function SupplierDirectory({ onClose }) {
                   /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 10px" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#7c3aed", small: true }, (PAYMENT_TERMS.find(function(t){ return t.id===s.paymentTerms; })||{label:s.paymentTerms}).label)),
                   /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 10px", color: "#6b7280", fontSize: 12 } }, s.notes||"—"),
                   /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 10px", display: "flex", gap: 6 } },
+                    /* @__PURE__ */ React.createElement("button", { onClick: function(){ setDetailSupplier(s); }, title: "\u05E4\u05E8\u05D8\u05D9 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA", style: { border: "none", background: "#f0f9ff", borderRadius: 4, cursor: "pointer", color: "#0369a1", fontSize: 12, padding: "3px 8px" } }, "\uD83D\uDC41\uFE0F"),
                     /* @__PURE__ */ React.createElement("button", { onClick: function(){ setForm({...s}); setShowForm(true); }, style: { border: "none", background: "#eff6ff", borderRadius: 4, cursor: "pointer", color: "#2563eb", fontSize: 12, padding: "3px 8px" } }, "\u270F\uFE0F"),
                     /* @__PURE__ */ React.createElement("button", { onClick: function(){ del(s.id); }, style: { border: "none", background: "#fee2e2", borderRadius: 4, cursor: "pointer", color: "#dc2626", fontSize: 12, padding: "3px 8px" } }, "\u2715")
                   )
@@ -2251,7 +2477,8 @@ function SupplierDirectory({ onClose }) {
               })
             )
           )
-    )
+    ),
+    detailSupplier && /* @__PURE__ */ React.createElement(SupplierInvoicesModal, { supplier: detailSupplier, supplierInvoices: supplierInvoices, projects: projects, onClose: function(){ setDetailSupplier(null); } })
   );
 }
 
@@ -2273,11 +2500,13 @@ function CashFlowPage() {
   const [tab, setTab] = React.useState("flow");
   const [dailyMonth, setDailyMonth] = React.useState(new Date().toISOString().slice(0,7));
   const [confirmTx, setConfirmTx] = React.useState(null); // {id, actualDate, actualAmount}
+  const [varianceTx, setVarianceTx] = React.useState(null); // SO דינמי — עריכת סכום
   const [editingId, setEditingId] = React.useState(null);
   const [deleteConfirmTx, setDeleteConfirmTx] = React.useState(null);
 
   const load = React.useCallback(async () => {
     await migrateSuppliersV1();
+    await updateOverdueStatus();
     const [tx, cfg, invs, projs, supp, so, supplierInvs] = await Promise.all([
       db.get("cashflow") || [],
       db.get("cashflow_settings") || {},
@@ -2418,10 +2647,29 @@ function CashFlowPage() {
       var conf2 = { id: genId(), standingOrderId: tx.standingOrderId, paidStatus: "paid", actualDate, actualAmount: parseFloat(actualAmount)||tx.amount, date: actualDate, createdAt: new Date().toISOString() };
       await db.set("cashflow", [...all, conf2]);
     } else {
-      // Manual - update in place
+      // עדכון רשומה רגילה (scan / manual)
       await db.set("cashflow", all.map(function(t){ return t.id===tx.id ? {...t, paidStatus:"paid", actualDate, actualAmount:parseFloat(actualAmount)||t.amount, date:actualDate} : t; }));
+      // קישור דו-כיווני מסשן ב' שלב 6: אם יש supplierInvoiceId — עדכן גם את supplier_invoices
+      if (tx.supplierInvoiceId) {
+        var allInv = await db.get("supplier_invoices") || [];
+        await db.set("supplier_invoices", allInv.map(function(inv){
+          return inv.id === tx.supplierInvoiceId
+            ? {...inv, status: "paid", paidAt: new Date().toISOString()}
+            : inv;
+        }));
+      }
     }
     setConfirmTx(null);
+    load();
+  };
+
+  // אישור הוראת קבע דינמית (סכום מותאם או ממוצע) — יוצר confirmation record כמו confirmPayment(type=standing_order)
+  var confirmSO = async function(tx, amount) {
+    var today = new Date().toISOString().slice(0,10);
+    var all = await db.get("cashflow") || [];
+    var conf = { id: genId(), standingOrderId: tx.standingOrderId, paidStatus: "paid", actualDate: today, actualAmount: parseFloat(amount) || tx.amount, date: today, createdAt: new Date().toISOString() };
+    await db.set("cashflow", [...all, conf]);
+    setVarianceTx(null);
     load();
   };
 
@@ -2563,14 +2811,38 @@ function CashFlowPage() {
   var now = new Date().toISOString().slice(0,7);
   var currentM = monthlyData.months[now]||{openingBalance:parseFloat(settings.openingBalance)||0,incomeTotal:0,expenseTotal:0,closingBalance:parseFloat(settings.openingBalance)||0};
 
+  // רקע שורה לפי סטטוס: ירוק=שולם, אדום=באיחור, בז'=הוראת קבע, צהוב=ממתין
+  var rowBg = function(t) {
+    if (t.paidStatus === "paid") return "#f0fdf4";
+    var due = t.scheduledDate || t.date;
+    var today = new Date().toISOString().slice(0,10);
+    if (due && due < today && t.paidStatus !== "paid") return "#fff5f5";
+    if (t.type === "standing_order") return "#fafaf0";
+    if (t.paidStatus === "pending") return "#fffbeb";
+    return "#fff";
+  };
+
   var paidBadge = function(t) {
     if (t.paidStatus==="paid") return /* @__PURE__ */ React.createElement(Badge,{color:"#059669",small:true},"\u2714 \u05E9\u05D5\u05DC\u05DD");
-    if (t.scheduledDate && t.scheduledDate < new Date().toISOString().slice(0,10) && t.paidStatus!=="paid") return /* @__PURE__ */ React.createElement(Badge,{color:"#dc2626",small:true},"\u26A0 \u05D1\u05D0\u05D9\u05D7\u05D5\u05E8");
+    var due = t.scheduledDate || t.date;
+    if (due && due < new Date().toISOString().slice(0,10) && t.paidStatus!=="paid") return /* @__PURE__ */ React.createElement(Badge,{color:"#dc2626",small:true},"\u26A0 \u05D1\u05D0\u05D9\u05D7\u05D5\u05E8");
     return /* @__PURE__ */ React.createElement(Badge,{color:"#d97706",small:true},"\u23F3 \u05E6\u05E4\u05D5\u05D9");
   };
 
   var confirmBtn = function(t) {
     if (t.paidStatus==="paid") return null;
+    // הוראת קבע דינמית: 2 כפתורים (אישור ממוצע / עריכת סכום) — דרך ספק מקושר
+    if (t.type === "standing_order" && t.standingOrderId) {
+      var so = standingOrders.find(function(s){ return s.id === t.standingOrderId; });
+      var sup = so && so.supplierId ? cfSuppliers.find(function(s){ return s.id === so.supplierId; }) : null;
+      if (sup && sup.standingOrderType === "dynamic" && sup.averageAmount > 0) {
+        var fmt = function(n){ return Math.round(n||0).toLocaleString("he-IL"); };
+        return /* @__PURE__ */ React.createElement("div", {style:{display:"flex",gap:4,whiteSpace:"nowrap"}},
+          /* @__PURE__ */ React.createElement("button",{onClick:function(){confirmSO(t, sup.averageAmount);},style:{fontSize:10,padding:"2px 7px",background:"#f0fdf4",border:"1px solid #86efac",borderRadius:3,cursor:"pointer",color:"#15803d",fontFamily:"inherit"}},"\u2714 \u20AA" + fmt(sup.averageAmount) + " (\u05DE\u05DE\u05D5\u05E6\u05E2)"),
+          /* @__PURE__ */ React.createElement("button",{onClick:function(){setVarianceTx({tx:t,averageAmount:sup.averageAmount});},style:{fontSize:10,padding:"2px 7px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:3,cursor:"pointer",color:"#1d4ed8",fontFamily:"inherit"}},"\u270F\uFE0F \u05E2\u05E8\u05D9\u05DB\u05D4")
+        );
+      }
+    }
     return /* @__PURE__ */ React.createElement("button",{onClick:function(){setConfirmTx({...t,actualDate:t.date,actualAmount:t.amount});},style:{fontSize:10,padding:"2px 7px",background:"#f0fdf4",border:"1px solid #86efac",borderRadius:3,cursor:"pointer",color:"#15803d",fontFamily:"inherit",whiteSpace:"nowrap"}},"\u2714 \u05D0\u05E9\u05E8 \u05EA\u05E9\u05DC\u05D5\u05DD");
   };
 
@@ -2702,8 +2974,7 @@ function CashFlowPage() {
               var dayRows = balanceRows.filter(function(t){ return t.date && t.date.startsWith(dailyMonth); });
               if (!dayRows.length) return /* @__PURE__ */ React.createElement("tr",null,/* @__PURE__ */ React.createElement("td",{colSpan:9,style:{padding:20,textAlign:"center",color:"#9ca3af"}},"\u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA \u05D1\u05D7\u05D5\u05D3\u05E9 \u05D6\u05D4"));
               return dayRows.map(function(t){
-                var isOverdue = t.paidStatus!=="paid" && t.scheduledDate && t.scheduledDate < new Date().toISOString().slice(0,10);
-                return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:isOverdue?"#fff5f5":t.paidStatus==="paid"?"#f0fdf4":"#fff"}},
+                return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:rowBg(t)}},
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600,whiteSpace:"nowrap"}},t.date),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.desc),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",color:"#6b7280",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.projectName||t.supplier||"\u2014"),
@@ -2735,7 +3006,7 @@ function CashFlowPage() {
         /* @__PURE__ */ React.createElement("tbody", null,
           balanceRows.length===0?/* @__PURE__ */ React.createElement("tr",null,/* @__PURE__ */ React.createElement("td",{colSpan:7,style:{padding:20,textAlign:"center",color:"#9ca3af"}},"\u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA")):
           balanceRows.map(function(t){
-            return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:t.paidStatus==="paid"?"#f0fdf4":t.type==="standing_order"?"#fafaf0":"#fff"}},
+            return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:rowBg(t)}},
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600,whiteSpace:"nowrap"}},t.date),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.desc),
               /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",color:"#6b7280",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.projectName||t.supplier||"\u2014"),
@@ -2775,7 +3046,7 @@ function CashFlowPage() {
             )),
             /* @__PURE__ */ React.createElement("tbody",null,
               suppTx.map(function(t){
-                return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:t.paidStatus==="paid"?"#f0fdf4":"#fff"}},
+                return /* @__PURE__ */ React.createElement("tr",{key:t.id,style:{borderBottom:"1px solid #f3f4f6",background:rowBg(t)}},
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",fontWeight:600}},t.supplier||"—"),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px",color:"#6b7280"}},t.invoiceDate||"—"),
                   /* @__PURE__ */ React.createElement("td",{style:{padding:"7px 8px"}},/* @__PURE__ */ React.createElement(Badge,{color:"#7c3aed",small:true},(PAYMENT_TERMS.find(function(x){return x.id===t.paymentTerms;})||{label:t.paymentTerms||"—"}).label)),
@@ -2795,6 +3066,7 @@ function CashFlowPage() {
     ),
 
     /* ====================== CONFIRM PAYMENT MODAL ====================== */
+    varianceTx && /* @__PURE__ */ React.createElement(SOVarianceModal, { tx: varianceTx.tx, averageAmount: varianceTx.averageAmount, onConfirm: function(amt){ confirmSO(varianceTx.tx, amt); }, onCancel: function(){ setVarianceTx(null); } }),
     confirmTx && /* @__PURE__ */ React.createElement("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.35)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}},
       /* @__PURE__ */ React.createElement(Card,{style:{minWidth:380,padding:20}},
         /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,fontSize:15,marginBottom:4}},"\u2714 \u05D0\u05E9\u05E8 \u05EA\u05E9\u05DC\u05D5\u05DD"),
@@ -2870,10 +3142,10 @@ function CashFlowPage() {
     ),
 
     /* ====================== SUPPLIER DIRECTORY MODAL ====================== */
-    showSupplierDir && /* @__PURE__ */ React.createElement(SupplierDirectory, {onClose:function(){setShowSupplierDir(false);load();}}),
+    showSupplierDir && /* @__PURE__ */ React.createElement(SupplierDirectory, {supplierInvoices:supplierInvoices,projects:projects,onClose:function(){setShowSupplierDir(false);load();}}),
 
     /* ====================== STANDING ORDERS MODAL ====================== */
-    showStandingOrders && /* @__PURE__ */ React.createElement(StandingOrdersManager, {onClose:function(){setShowStandingOrders(false);load();}})
+    showStandingOrders && /* @__PURE__ */ React.createElement(StandingOrdersManager, {cfSuppliers:cfSuppliers,onClose:function(){setShowStandingOrders(false);load();}})
   );
 }
 
