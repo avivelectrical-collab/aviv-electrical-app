@@ -3688,6 +3688,7 @@ function PricingPage() {
     ["supplier", "\u{1F4E6} \u05E1\u05E4\u05E7\u05D9\u05DD"],
     ["dakal", "\u{1F50D} \u05D3\u05E7\u05DC"],
     ["purchases", "\u{1F6D2} \u05DE\u05E2\u05E7\u05D1 \u05E8\u05DB\u05D9\u05E9\u05D5\u05EA"],
+    ["alerts", "\u{1F514} \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA"],
     ["analysis", "\u{1F4CA} \u05E0\u05D9\u05EA\u05D5\u05D7 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8"],
     ["history", "\u{1F4BE} \u05D4\u05D9\u05E1\u05D8\u05D5\u05E8\u05D9\u05D4"]
   ];
@@ -3718,7 +3719,7 @@ function PricingPage() {
       return p.concat([Object.assign({}, line, { id: genId() })]);
     });
     setTab("boq");
-  } }) : null, tab === "purchases" ? /* @__PURE__ */ React.createElement(PurchaseTracking, null) : null, tab === "analysis" ? /* @__PURE__ */ React.createElement(ProjectAnalysis, null) : null, tab === "history" ? /* @__PURE__ */ React.createElement(PricingHistory, { onEdit: function(q) { setSharedLines(q.lines||[]); setLoadedQuote(q); setTab("boq"); } }) : null);
+  } }) : null, tab === "purchases" ? /* @__PURE__ */ React.createElement(PurchaseTracking, null) : null, tab === "alerts" ? /* @__PURE__ */ React.createElement(AlertsPage, null) : null, tab === "analysis" ? /* @__PURE__ */ React.createElement(ProjectAnalysis, null) : null, tab === "history" ? /* @__PURE__ */ React.createElement(PricingHistory, { onEdit: function(q) { setSharedLines(q.lines||[]); setLoadedQuote(q); setTab("boq"); } }) : null);
 }
 function ExcelGuide(props) {
   var onClose = props.onClose;
@@ -5088,6 +5089,153 @@ function PurchaseTracking() {
           })
         ),
     detailItem && /* @__PURE__ */ React.createElement(PurchaseDetailModal, { item: detailItem, onClose: function(){ setDetailItem(null); } })
+  );
+}
+
+// ---- Alerts Page — מערכת התראות (D-3a: Data layer + placeholder UI) ----
+function AlertsPage() {
+  const [invoiceItems, setInvoiceItems] = React.useState([]);
+  const [catalog, setCatalog] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(function() {
+    (async function() {
+      var results = await Promise.all([
+        db.get("invoice_items"),
+        db.get("supplier_items")
+      ]);
+      setInvoiceItems(Array.isArray(results[0]) ? results[0] : []);
+      setCatalog(Array.isArray(results[1]) ? results[1] : []);
+      setLoading(false);
+    })();
+  }, []);
+
+  // ספים (כפי שאושרו): 15% לעלייה/ירידה; 30% ל-high severity
+  var PRICE_THRESHOLD = 0.15;
+  var PRICE_HIGH = 0.30;
+  // 60/90/180 ימים — חדש / רדום / רדום חמור
+  var NEW_DAYS = 60;
+  var DORMANT_DAYS = 90;
+  var DORMANT_HIGH_DAYS = 180;
+
+  var todayISO = React.useMemo(function() { return new Date().toISOString().slice(0, 10); }, []);
+  var daysAgo = function(d) { var x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10); };
+
+  // === Alert 1: Price jumps — מבוסס על supplier_items.history ===
+  var priceAlerts = React.useMemo(function() {
+    var alerts = [];
+    (catalog || []).forEach(function(item) {
+      var hist = Array.isArray(item.history) ? item.history : [];
+      var curr = typeof item.price === "number" ? item.price : 0;
+      var prev = null;
+      if (hist.length >= 2) { prev = hist[hist.length - 2].price; }
+      else if (item.firstPrice && item.firstPrice !== curr) { prev = item.firstPrice; }
+      if (!prev || prev === curr || !curr) return;
+      var delta = (curr - prev) / prev;
+      if (Math.abs(delta) < PRICE_THRESHOLD) return;
+      alerts.push({
+        id: "price_" + (delta > 0 ? "up" : "down") + "_" + (item.itemCode || item.name) + "_" + (item.lastUpdated || todayISO),
+        type: delta > 0 ? "price_up" : "price_down",
+        severity: Math.abs(delta) >= PRICE_HIGH ? "high" : "medium",
+        itemKey: item.itemCode || (item.name || "").trim().toLowerCase(),
+        itemName: item.name || "",
+        itemCode: item.itemCode || null,
+        unit: item.unit || "",
+        details: { prevPrice: prev, currPrice: curr, deltaPercent: delta * 100 },
+        date: item.lastUpdated || todayISO,
+        supplier: item.cat || null
+      });
+    });
+    return alerts;
+  }, [catalog, todayISO]);
+
+  // === Alert 2: New items — הופיעו לראשונה ב-60 ימים האחרונים ===
+  var newItemAlerts = React.useMemo(function() {
+    var cutoff = daysAgo(NEW_DAYS);
+    var firstDates = {};
+    (invoiceItems || []).forEach(function(ii) {
+      var key = ii.itemCode || (ii.name || "").trim().toLowerCase();
+      if (!key || !ii.invoiceDate) return;
+      if (!firstDates[key] || ii.invoiceDate < firstDates[key].date) {
+        firstDates[key] = { date: ii.invoiceDate, name: ii.name || "", itemCode: ii.itemCode || null, unit: ii.unit || "", supplier: ii.supplier || null, unitPrice: ii.unitPrice || 0 };
+      }
+    });
+    var alerts = [];
+    Object.keys(firstDates).forEach(function(key) {
+      var f = firstDates[key];
+      if (f.date >= cutoff) {
+        alerts.push({
+          id: "new_" + key + "_" + f.date,
+          type: "new_item",
+          severity: "medium",
+          itemKey: key, itemName: f.name, itemCode: f.itemCode, unit: f.unit,
+          details: { firstDate: f.date, firstSupplier: f.supplier, firstPrice: f.unitPrice },
+          date: f.date, supplier: f.supplier
+        });
+      }
+    });
+    return alerts;
+  }, [invoiceItems]);
+
+  // === Alert 3: Dormant items — לא נקנו 90+ ימים ===
+  var dormantAlerts = React.useMemo(function() {
+    var cutoff = daysAgo(DORMANT_DAYS);
+    var highCutoff = daysAgo(DORMANT_HIGH_DAYS);
+    var alerts = [];
+    (catalog || []).forEach(function(item) {
+      var lastDate = item.lastUpdated || null;
+      if (!lastDate || lastDate >= cutoff) return;
+      var days = Math.floor((new Date(todayISO) - new Date(lastDate)) / 86400000);
+      alerts.push({
+        id: "dormant_" + (item.itemCode || item.name) + "_" + lastDate,
+        type: "dormant_item",
+        severity: lastDate < highCutoff ? "high" : "medium",
+        itemKey: item.itemCode || (item.name || "").trim().toLowerCase(),
+        itemName: item.name || "", itemCode: item.itemCode || null, unit: item.unit || "",
+        details: { lastDate: lastDate, daysSilent: days, lastPrice: item.price },
+        date: lastDate, supplier: item.cat || null
+      });
+    });
+    return alerts;
+  }, [catalog, todayISO]);
+
+  var allAlerts = React.useMemo(function() {
+    return priceAlerts.concat(newItemAlerts).concat(dormantAlerts);
+  }, [priceAlerts, newItemAlerts, dormantAlerts]);
+
+  if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: "#6b7280" } }, "\u05D8\u05D5\u05E2\u05DF \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA...");
+
+  var cardStyle = function(bg, fg) { return { background: bg, color: fg, padding: "14px 16px", borderRadius: 8, textAlign: "center" }; };
+  var priceUpCount = priceAlerts.filter(function(a){ return a.type === "price_up"; }).length;
+  var priceDownCount = priceAlerts.filter(function(a){ return a.type === "price_down"; }).length;
+
+  return /* @__PURE__ */ React.createElement("div", null,
+    /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", padding: "12px 16px", borderRadius: 8, marginBottom: 14, color: "#1e40af" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 14, marginBottom: 4 } }, "\uD83D\uDD14 \u05DE\u05E2\u05E8\u05DB\u05EA \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA (D-3a \u2014 Data layer)"),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "UI \u05DE\u05DC\u05D0 \u05D9\u05D1\u05E0\u05D4 \u05D1-D-3b. \u05DB\u05E8\u05D2\u05E2 \u05DE\u05E6\u05D9\u05D2 \u05E1\u05E4\u05D9\u05E8\u05D5\u05EA \u05DC\u05D0\u05D9\u05DE\u05D5\u05EA \u05D4\u05E0\u05EA\u05D5\u05E0\u05D9\u05DD.")
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 } },
+      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#fee2e2", "#991b1b") },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83D\uDD34 \u05E2\u05DC\u05D9\u05D5\u05EA \u05DE\u05D7\u05D9\u05E8 >15%"),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, priceUpCount)
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#d1fae5", "#065f46") },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83D\uDFE2 \u05D9\u05E8\u05D9\u05D3\u05D5\u05EA \u05DE\u05D7\u05D9\u05E8 >15%"),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, priceDownCount)
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#fef3c7", "#92400e") },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83C\uDD95 \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D7\u05D3\u05E9\u05D9\u05DD (\u226460 \u05D9\u05DE\u05D9\u05DD)"),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, newItemAlerts.length)
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#f3f4f6", "#374151") },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83D\uDE34 \u05E8\u05D3\u05D5\u05DE\u05D9\u05DD (\u226590 \u05D9\u05DE\u05D9\u05DD)"),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, dormantAlerts.length)
+      )
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { marginTop: 20, padding: 12, background: "#f9fafb", borderRadius: 8, fontSize: 11, color: "#6b7280" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, "Debug \u2014 \u05DC\u05E2\u05D9\u05D5\u05DF \u05D1\u05DC\u05D1\u05D3:"),
+      /* @__PURE__ */ React.createElement("div", null, "\u05E1\u05D4\"\u05DB alerts: " + allAlerts.length + " | invoice_items: " + invoiceItems.length + " | catalog: " + catalog.length)
+    )
   );
 }
 
