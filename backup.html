@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <title>📦 Backup Viewer — אביב סבג מערכות חשמל</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; padding: 20px; }
+    h1 { color: #1e40af; margin-bottom: 16px; }
+    .info { background: #fff; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; color: #374151; }
+    .status { background: #fef3c7; color: #92400e; padding: 14px; border-radius: 8px; margin-bottom: 16px; text-align: center; }
+    .coll { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px #0001; }
+    .coll-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .coll-header h2 { font-size: 15px; color: #111827; }
+    .count { color: #6b7280; font-size: 12px; }
+    .btn { padding: 6px 12px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 4px; font-family: inherit; }
+    .btn-all { background: #059669; padding: 10px 20px; font-size: 14px; font-weight: 700; }
+    .btn:hover { opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+    th, td { padding: 5px 7px; text-align: right; border-bottom: 1px solid #f3f4f6; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    th { background: #f9fafb; font-weight: 700; font-size: 10px; color: #374151; position: sticky; top: 0; }
+    .error { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 6px; font-size: 12px; }
+    .empty { color: #9ca3af; font-style: italic; padding: 8px; }
+    .table-wrap { max-height: 300px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>📦 Backup Viewer — כל הנתונים שלך מ-Firebase</h1>
+  <div class="info">
+    <strong>פרויקט:</strong> aviv-electrical &nbsp;|&nbsp;
+    <strong>Collection:</strong> pm_data &nbsp;|&nbsp;
+    <strong>זמן:</strong> <span id="timestamp"></span>
+  </div>
+  <div id="status" class="status">⏳ מתחבר ל-Firebase...</div>
+  <div id="actions" style="margin-bottom: 16px; display: none;">
+    <button class="btn btn-all" onclick="downloadAll()">📥 הורד את הכל כ-JSON אחד</button>
+  </div>
+  <div id="output"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script>
+    document.getElementById("timestamp").textContent = new Date().toLocaleString("he-IL");
+
+    firebase.initializeApp({
+      apiKey: "AIzaSyC6Jp2qFxTre1R4CenDnqF8qpanNVBVdvc",
+      authDomain: "aviv-electrical.firebaseapp.com",
+      projectId: "aviv-electrical",
+      storageBucket: "aviv-electrical.firebasestorage.app",
+      messagingSenderId: "1066028556697",
+      appId: "1:1066028556697:web:f9b413d1846d1ec5a1f308"
+    });
+    const firestore = firebase.firestore();
+
+    const COLLECTIONS = [
+      "projects", "invoices", "worklogs", "expenses", "users", "attendance",
+      "cashflow", "cashflow_suppliers", "cashflow_standing_orders", "cashflow_settings",
+      "supplier_invoices", "supplier_items", "invoice_items",
+      "dakal_build", "dakal_maint"
+    ];
+
+    const allData = {};
+
+    function fmt(v) {
+      if (v === null || v === undefined) return "—";
+      if (typeof v === "object") return JSON.stringify(v).slice(0, 60);
+      const s = String(v);
+      return s.length > 50 ? s.slice(0, 50) + "…" : s;
+    }
+
+    async function loadAll() {
+      const status = document.getElementById("status");
+      const output = document.getElementById("output");
+      const actions = document.getElementById("actions");
+      let firebaseOK = false;
+
+      for (const key of COLLECTIONS) {
+        const div = document.createElement("div");
+        div.className = "coll";
+        div.innerHTML = `<div class="coll-header"><h2>⏳ ${key}</h2></div>`;
+        output.appendChild(div);
+
+        try {
+          const snap = await firestore.collection("pm_data").doc(key).get();
+          firebaseOK = true;
+          if (!snap.exists) {
+            div.innerHTML = `<div class="coll-header"><h2>${key}</h2><span class="count">📭 doc לא קיים</span></div>`;
+            continue;
+          }
+          const raw = snap.data().value;
+          const arr = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? [raw] : []);
+          allData[key] = arr;
+
+          if (arr.length === 0) {
+            div.innerHTML = `<div class="coll-header"><h2>${key}</h2><span class="count">ריק</span></div>`;
+            continue;
+          }
+
+          const allKeys = Array.from(new Set(arr.flatMap(r => r ? Object.keys(r) : [])));
+          const keys = allKeys.slice(0, 8);
+          const rowsHtml = arr.slice(0, 50).map(r =>
+            `<tr>${keys.map(k => `<td title="${String(r && r[k] !== undefined ? r[k] : "").replace(/"/g, "&quot;")}">${fmt(r && r[k])}</td>`).join("")}</tr>`
+          ).join("");
+
+          div.innerHTML = `
+            <div class="coll-header">
+              <h2>📂 ${key}</h2>
+              <span class="count">${arr.length} רשומות${arr.length > 50 ? " (מציג 50)" : ""} — ${allKeys.length} שדות</span>
+            </div>
+            <div class="table-wrap"><table>
+              <thead><tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table></div>
+            <div style="margin-top: 8px;">
+              <button class="btn" onclick="downloadOne('${key}')">📥 הורד ${key}.json</button>
+            </div>
+          `;
+        } catch (e) {
+          div.innerHTML = `
+            <div class="coll-header"><h2>❌ ${key}</h2></div>
+            <div class="error">
+              <strong>שגיאה:</strong> ${e.code || "unknown"} — ${e.message}
+            </div>
+          `;
+        }
+      }
+
+      if (firebaseOK) {
+        status.innerHTML = "✅ חיבור ל-Firebase עובד. " + Object.keys(allData).length + " collections נטענו.";
+        status.style.background = "#d1fae5";
+        status.style.color = "#065f46";
+        actions.style.display = "block";
+      } else {
+        status.innerHTML = "❌ <strong>Firebase לא זמין כלל.</strong> בדוק את Firestore Rules ב-Firebase Console. אם שינית rules — תוודא שקיים <code>allow read: if true;</code> לזמן הבדיקה.";
+        status.style.background = "#fee2e2";
+        status.style.color = "#991b1b";
+      }
+    }
+
+    function downloadOne(key) {
+      const blob = new Blob([JSON.stringify(allData[key] || [], null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = key + ".json"; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function downloadAll() {
+      const payload = {
+        exported: new Date().toISOString(),
+        project: "aviv-electrical",
+        collections: allData
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "aviv-electrical-backup-" + new Date().toISOString().slice(0, 10) + ".json"; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>
