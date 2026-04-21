@@ -5373,7 +5373,195 @@ function AlertsPage() {
   );
 }
 
-// ---- Assemblies Page — הרכבות: מיפוי דקל → רכיבי ספק (D-4a-1: browse-only, editor ב-D-4a-2) ----
+// ---- AssemblyEditor — modal עריכת הרכבה (D-4a-2) ----
+var LABOR_LEVELS = [
+  { key: "chief", label: "\u05E6'\u05D9\u05E3", rate: 175 },
+  { key: "certified", label: "\u05D7\u05E9\u05DE\u05DC\u05D0\u05D9 \u05DE\u05D5\u05E1\u05DE\u05DA", rate: 150 },
+  { key: "helper", label: "\u05E2\u05D5\u05D6\u05E8", rate: 120 },
+  { key: "custom", label: "\u05DE\u05D5\u05EA\u05D0\u05DD", rate: 0 }
+];
+
+function AssemblyEditor(props) {
+  var item = props.item;
+  var recipe = props.recipe;
+  var supplierItems = props.supplierItems || [];
+  var onChange = props.onChange;
+  var onSave = props.onSave;
+  var onDelete = props.onDelete;
+  var onClose = props.onClose;
+
+  var setField = function(k, v) {
+    var next = Object.assign({}, recipe); next[k] = v; onChange(next);
+  };
+  var setComp = function(i, patch) {
+    var comps = (recipe.components || []).slice();
+    comps[i] = Object.assign({}, comps[i], patch);
+    setField("components", comps);
+  };
+  var addComp = function() {
+    var comps = (recipe.components || []).slice();
+    comps.push({ supplierItemKey: "", supplierItemName: "", quantity: 1, unit: "", notes: "" });
+    setField("components", comps);
+  };
+  var delComp = function(i) {
+    var comps = (recipe.components || []).slice();
+    comps.splice(i, 1);
+    setField("components", comps);
+  };
+
+  var sortedSupp = (supplierItems || []).slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","he"); });
+  var fmt = function(n){ return (Math.round((n||0)*100)/100).toLocaleString("he-IL"); };
+
+  var materialsCost = 0;
+  (recipe.components || []).forEach(function(c) {
+    var supp = sortedSupp.find(function(s){
+      return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
+        || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
+    });
+    materialsCost += (c.quantity || 0) * (supp ? (supp.price || 0) : 0);
+  });
+  var laborCost = (recipe.laborHours || 0) * (recipe.laborRate || 0);
+  var totalCost = recipe.workScope === "labor_only" ? laborCost
+                : recipe.workScope === "material_only" ? materialsCost
+                : materialsCost + laborCost;
+  var dakalPrice = typeof item.price === "number" ? item.price : (parseFloat(item.price) || 0);
+  var delta = dakalPrice ? Math.round((totalCost / dakalPrice - 1) * 100) : 0;
+
+  var scopeBtn = function(key, label) {
+    var active = recipe.workScope === key;
+    return /* @__PURE__ */ React.createElement("button", {
+      type: "button",
+      onClick: function(){ setField("workScope", key); },
+      style: {
+        padding: "8px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
+        border: active ? "2px solid #2563eb" : "1px solid #d1d5db",
+        background: active ? "#eff6ff" : "#fff",
+        color: active ? "#1e40af" : "#374151", fontFamily: "inherit"
+      }
+    }, label);
+  };
+
+  return /* @__PURE__ */ React.createElement("div", {
+    onClick: onClose,
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
+  },
+    /* @__PURE__ */ React.createElement("div", {
+      onClick: function(e){ e.stopPropagation(); },
+      style: { background: "#fff", borderRadius: 10, maxWidth: 820, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 24 }
+    },
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid #e5e7eb" } },
+        /* @__PURE__ */ React.createElement("div", null,
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", fontFamily: "monospace" } }, (item.code || item.itemNum || "") + " \u00B7 " + (recipe.dakalCatalog === "dakal_build" ? "\u05D1\u05E0\u05D9\u05D9\u05D4" : "\u05EA\u05D7\u05D6\u05D5\u05E7\u05D4")),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "#111827", marginTop: 4 } }, item.name || item.desc || ""),
+          dakalPrice ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginTop: 4 } }, "\u05DE\u05D7\u05D9\u05E8 \u05D3\u05E7\u05DC: \u20AA" + fmt(dakalPrice)) : null
+        ),
+        /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" } }, "\u00D7")
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16 } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 } }, "\u05E1\u05D5\u05D2 \u05E2\u05D1\u05D5\u05D3\u05D4"),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
+          scopeBtn("labor_material", "\u05E2\u05D1\u05D5\u05D3\u05D4 + \u05D7\u05D5\u05DE\u05E8"),
+          scopeBtn("labor_only", "\u05E2\u05D1\u05D5\u05D3\u05D4 \u05D1\u05DC\u05D1\u05D3"),
+          scopeBtn("material_only", "\u05D7\u05D5\u05DE\u05E8 \u05D1\u05DC\u05D1\u05D3")
+        )
+      ),
+      recipe.workScope !== "material_only" && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16, padding: 12, background: "#fef3c7", borderRadius: 8, border: "1px solid #fde68a" } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 10 } }, "\u05E2\u05D1\u05D5\u05D3\u05D4"),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 100px 100px 1fr", gap: 10, alignItems: "end" } },
+          /* @__PURE__ */ React.createElement(Field, { label: "\u05E8\u05DE\u05EA \u05E2\u05D5\u05D1\u05D3" },
+            /* @__PURE__ */ React.createElement(Select, {
+              value: recipe.laborLevel || "certified",
+              onChange: function(e){
+                var lv = e.target.value;
+                var found = LABOR_LEVELS.find(function(x){ return x.key === lv; });
+                var next = Object.assign({}, recipe, { laborLevel: lv });
+                if (lv !== "custom" && found) next.laborRate = found.rate;
+                onChange(next);
+              }
+            }, LABOR_LEVELS.map(function(lv){
+              return /* @__PURE__ */ React.createElement("option", { key: lv.key, value: lv.key }, lv.label);
+            }))
+          ),
+          /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05E2\u05D5\u05EA" },
+            /* @__PURE__ */ React.createElement(Input, { type: "number", value: recipe.laborHours || 0, onChange: function(e){ setField("laborHours", parseFloat(e.target.value) || 0); } })
+          ),
+          /* @__PURE__ */ React.createElement(Field, { label: "\u20AA/\u05E9\u05E2\u05D4" },
+            /* @__PURE__ */ React.createElement(Input, { type: "number", value: recipe.laborRate || 0, onChange: function(e){ setField("laborRate", parseFloat(e.target.value) || 0); } })
+          ),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#92400e", paddingBottom: 18 } }, "\u20AA" + fmt(laborCost))
+        )
+      ),
+      recipe.workScope !== "labor_only" && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16, padding: 12, background: "#eff6ff", borderRadius: 8, border: "1px solid #bfdbfe" } },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#1e40af" } }, "\u05E8\u05DB\u05D9\u05D1\u05D9 \u05D7\u05D5\u05DE\u05E8 (\u20AA" + fmt(materialsCost) + ")"),
+          /* @__PURE__ */ React.createElement("button", { type: "button", onClick: addComp, style: { fontSize: 11, padding: "4px 10px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 } }, "+ \u05D4\u05D5\u05E1\u05E3 \u05E8\u05DB\u05D9\u05D1")
+        ),
+        (recipe.components || []).length === 0
+          ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", fontStyle: "italic", textAlign: "center", padding: 10 } }, "\u05D0\u05D9\u05DF \u05E8\u05DB\u05D9\u05D1\u05D9\u05DD. \u05DC\u05D7\u05E5 '+ \u05D4\u05D5\u05E1\u05E3 \u05E8\u05DB\u05D9\u05D1'")
+          : (recipe.components || []).map(function(c, i) {
+              var supp = sortedSupp.find(function(s){
+                return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
+                  || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
+              });
+              var pr = supp ? (supp.price || 0) : 0;
+              return /* @__PURE__ */ React.createElement("div", {
+                key: i,
+                style: { display: "grid", gridTemplateColumns: "1fr 80px 70px 80px 40px", gap: 8, alignItems: "center", marginBottom: 8, padding: "8px", background: "#fff", borderRadius: 6 }
+              },
+                /* @__PURE__ */ React.createElement(Select, {
+                  value: c.supplierItemKey || "",
+                  onChange: function(e) {
+                    var key = e.target.value;
+                    var found = sortedSupp.find(function(s){ return (s.itemCode || s.name) === key; });
+                    setComp(i, {
+                      supplierItemKey: found ? (found.itemCode || "") : "",
+                      supplierItemName: found ? (found.name || "") : "",
+                      unit: found ? (found.unit || c.unit || "") : c.unit
+                    });
+                  }
+                },
+                  /* @__PURE__ */ React.createElement("option", { value: "" }, "-- \u05D1\u05D7\u05E8 \u05E8\u05DB\u05D9\u05D1 --"),
+                  sortedSupp.map(function(s){
+                    var key = s.itemCode || s.name;
+                    return /* @__PURE__ */ React.createElement("option", { key: key, value: key }, (s.name || "") + (s.itemCode ? " [" + s.itemCode + "]" : ""));
+                  })
+                ),
+                /* @__PURE__ */ React.createElement(Input, { type: "number", value: c.quantity || 0, onChange: function(e){ setComp(i, { quantity: parseFloat(e.target.value) || 0 }); } }),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", textAlign: "center" } }, c.unit || "\u2014"),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "#1e40af", textAlign: "left" } }, "\u20AA" + fmt((c.quantity || 0) * pr)),
+                /* @__PURE__ */ React.createElement("button", { type: "button", onClick: function(){ delComp(i); }, style: { background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: 14 } }, "\u2715")
+              );
+            })
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" },
+        /* @__PURE__ */ React.createElement("textarea", {
+          value: recipe.notes || "",
+          onChange: function(e){ setField("notes", e.target.value); },
+          style: { width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, fontFamily: "inherit", minHeight: 50, resize: "vertical" }
+        })
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { background: "#f9fafb", padding: 12, borderRadius: 8, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        /* @__PURE__ */ React.createElement("div", null,
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, "\u05E2\u05DC\u05D5\u05EA \u05DE\u05D7\u05D5\u05E9\u05D1\u05EA"),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: "#111827" } }, "\u20AA" + fmt(totalCost))
+        ),
+        dakalPrice ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "left" } },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280" } }, "\u05DE\u05D5\u05DC \u05D3\u05E7\u05DC \u20AA" + fmt(dakalPrice)),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: delta > 0 ? "#dc2626" : delta < 0 ? "#16a34a" : "#6b7280" } }, (delta > 0 ? "+" : "") + delta + "%")
+        ) : null
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10 } },
+        recipe.id ? /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onDelete, style: { padding: "8px 16px", background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\uD83D\uDDD1 \u05DE\u05D7\u05E7") : /* @__PURE__ */ React.createElement("div", null),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
+          /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onClose, style: { padding: "8px 16px", background: "#fff", color: "#374151", border: "1px solid #d1d5db", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
+          /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onSave, style: { padding: "8px 20px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\uD83D\uDCBE \u05E9\u05DE\u05D5\u05E8")
+        )
+      )
+    )
+  );
+}
+
+// ---- Assemblies Page — הרכבות: מיפוי דקל → רכיבי ספק (D-4a-2: מלא עם editor) ----
 function AssembliesPage() {
   const [dakalBuild, setDakalBuild] = React.useState([]);
   const [dakalMaint, setDakalMaint] = React.useState([]);
@@ -5385,6 +5573,8 @@ function AssembliesPage() {
   const [catalogFilter, setCatalogFilter] = React.useState("all");
   const [recipeFilter, setRecipeFilter] = React.useState("all");
   const [scopeFilter, setScopeFilter] = React.useState("all");
+  const [editingItem, setEditingItem] = React.useState(null);
+  const [editingRecipe, setEditingRecipe] = React.useState(null);
 
   React.useEffect(function() {
     (async function() {
@@ -5462,6 +5652,50 @@ function AssembliesPage() {
   };
 
   var fmtPrice = function(n) { return (Math.round((n || 0) * 100) / 100).toLocaleString("he-IL"); };
+
+  var openEditor = function(it) {
+    var code = getCode(it);
+    var existing = decoByCode[code];
+    setEditingItem(it);
+    setEditingRecipe(existing ? Object.assign({}, existing) : {
+      dakalItemCode: code,
+      dakalItemName: getName(it),
+      dakalCatalog: it._catalog,
+      workScope: "labor_material",
+      components: [],
+      laborLevel: "certified",
+      laborHours: 1,
+      laborRate: 150,
+      notes: "",
+      active: true
+    });
+  };
+
+  var closeEditor = function() { setEditingItem(null); setEditingRecipe(null); };
+
+  var saveRecipe = async function() {
+    var now = new Date().toISOString();
+    var current = (decompositions || []).slice();
+    var next;
+    if (editingRecipe.id) {
+      next = current.map(function(d){ return d.id === editingRecipe.id ? Object.assign({}, editingRecipe, { updatedAt: now }) : d; });
+    } else {
+      var rec = Object.assign({}, editingRecipe, { id: genId(), createdAt: now, updatedAt: now });
+      next = current.concat([rec]);
+    }
+    await db.set("item_decompositions", next);
+    setDecompositions(next);
+    closeEditor();
+  };
+
+  var deleteRecipe = async function() {
+    if (!editingRecipe.id) { closeEditor(); return; }
+    if (!window.confirm("\u05DC\u05DE\u05D7\u05D5\u05E7 \u05D4\u05E8\u05DB\u05D1\u05D4 \u05D6\u05D5?")) return;
+    var next = (decompositions || []).filter(function(d){ return d.id !== editingRecipe.id; });
+    await db.set("item_decompositions", next);
+    setDecompositions(next);
+    closeEditor();
+  };
 
   if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: "#6b7280" } }, "\u05D8\u05D5\u05E2\u05DF \u05D4\u05E8\u05DB\u05D1\u05D5\u05EA...");
 
@@ -5553,14 +5787,22 @@ function AssembliesPage() {
                   : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, color: "#9ca3af" } }, "\u2014")
               ),
               /* @__PURE__ */ React.createElement("button", {
-                disabled: true,
-                title: "Editor \u05D9\u05D2\u05D9\u05E2 \u05D1-D-4a-2",
-                style: { fontSize: 11, padding: "4px 10px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: 4, cursor: "not-allowed", color: "#9ca3af", fontFamily: "inherit", fontWeight: 600, opacity: 0.6 }
+                onClick: function(){ openEditor(it); },
+                style: { fontSize: 11, padding: "4px 10px", background: recipe ? "#eff6ff" : "#f0fdf4", border: "1px solid " + (recipe ? "#bfdbfe" : "#bbf7d0"), borderRadius: 4, cursor: "pointer", color: recipe ? "#1e40af" : "#166534", fontFamily: "inherit", fontWeight: 600 }
               }, recipe ? "\u270F\uFE0F \u05E2\u05E8\u05D5\u05DA" : "+ \u05E6\u05D5\u05E8")
             );
           }),
           filtered.length > 200 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px", textAlign: "center", fontSize: 11, color: "#6b7280", background: "#f9fafb" } }, "\u05DE\u05D5\u05E6\u05D2\u05D9\u05DD 200 \u05E8\u05D0\u05E9\u05D5\u05E0\u05D9\u05DD \u05DE\u05EA\u05D5\u05DA " + filtered.length + ". \u05E6\u05DE\u05E6\u05DD \u05E1\u05D9\u05E0\u05D5\u05DF \u05DC\u05E8\u05D0\u05D5\u05EA \u05D9\u05D5\u05EA\u05E8.")
-        )
+        ),
+    editingItem && editingRecipe && /* @__PURE__ */ React.createElement(AssemblyEditor, {
+      item: editingItem,
+      recipe: editingRecipe,
+      supplierItems: supplierItems,
+      onChange: setEditingRecipe,
+      onSave: saveRecipe,
+      onDelete: deleteRecipe,
+      onClose: closeEditor
+    })
   );
 }
 
