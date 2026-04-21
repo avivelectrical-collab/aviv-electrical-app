@@ -3689,6 +3689,7 @@ function PricingPage() {
     ["dakal", "\u{1F50D} \u05D3\u05E7\u05DC"],
     ["purchases", "\u{1F6D2} \u05DE\u05E2\u05E7\u05D1 \u05E8\u05DB\u05D9\u05E9\u05D5\u05EA"],
     ["alerts", "\u{1F514} \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA"],
+    ["assemblies", "\u2696\uFE0F \u05D4\u05E8\u05DB\u05D1\u05D5\u05EA"],
     ["analysis", "\u{1F4CA} \u05E0\u05D9\u05EA\u05D5\u05D7 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8"],
     ["history", "\u{1F4BE} \u05D4\u05D9\u05E1\u05D8\u05D5\u05E8\u05D9\u05D4"]
   ];
@@ -3719,7 +3720,7 @@ function PricingPage() {
       return p.concat([Object.assign({}, line, { id: genId() })]);
     });
     setTab("boq");
-  } }) : null, tab === "purchases" ? /* @__PURE__ */ React.createElement(PurchaseTracking, null) : null, tab === "alerts" ? /* @__PURE__ */ React.createElement(AlertsPage, null) : null, tab === "analysis" ? /* @__PURE__ */ React.createElement(ProjectAnalysis, null) : null, tab === "history" ? /* @__PURE__ */ React.createElement(PricingHistory, { onEdit: function(q) { setSharedLines(q.lines||[]); setLoadedQuote(q); setTab("boq"); } }) : null);
+  } }) : null, tab === "purchases" ? /* @__PURE__ */ React.createElement(PurchaseTracking, null) : null, tab === "alerts" ? /* @__PURE__ */ React.createElement(AlertsPage, null) : null, tab === "assemblies" ? /* @__PURE__ */ React.createElement(AssembliesPage, null) : null, tab === "analysis" ? /* @__PURE__ */ React.createElement(ProjectAnalysis, null) : null, tab === "history" ? /* @__PURE__ */ React.createElement(PricingHistory, { onEdit: function(q) { setSharedLines(q.lines||[]); setLoadedQuote(q); setTab("boq"); } }) : null);
 }
 function ExcelGuide(props) {
   var onClose = props.onClose;
@@ -5369,6 +5370,197 @@ function AlertsPage() {
       item: detailItem,
       onClose: function(){ setDetailItem(null); }
     })
+  );
+}
+
+// ---- Assemblies Page — הרכבות: מיפוי דקל → רכיבי ספק (D-4a-1: browse-only, editor ב-D-4a-2) ----
+function AssembliesPage() {
+  const [dakalBuild, setDakalBuild] = React.useState([]);
+  const [dakalMaint, setDakalMaint] = React.useState([]);
+  const [supplierItems, setSupplierItems] = React.useState([]);
+  const [decompositions, setDecompositions] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const [search, setSearch] = React.useState("");
+  const [catalogFilter, setCatalogFilter] = React.useState("all");
+  const [recipeFilter, setRecipeFilter] = React.useState("all");
+  const [scopeFilter, setScopeFilter] = React.useState("all");
+
+  React.useEffect(function() {
+    (async function() {
+      var results = await Promise.all([
+        db.get("dakal_build"),
+        db.get("dakal_maint"),
+        db.get("supplier_items"),
+        db.get("item_decompositions")
+      ]);
+      setDakalBuild(Array.isArray(results[0]) ? results[0] : []);
+      setDakalMaint(Array.isArray(results[1]) ? results[1] : []);
+      setSupplierItems(Array.isArray(results[2]) ? results[2] : []);
+      setDecompositions(Array.isArray(results[3]) ? results[3] : []);
+      setLoading(false);
+    })();
+  }, []);
+
+  // מיפוי dakalItemCode → decomposition (ל-lookup מהיר)
+  var decoByCode = React.useMemo(function() {
+    var map = {};
+    (decompositions || []).forEach(function(d) {
+      if (d && d.dakalItemCode) map[d.dakalItemCode] = d;
+    });
+    return map;
+  }, [decompositions]);
+
+  // איחוד פריטי דקל עם תיוג קטלוג
+  var allDakalItems = React.useMemo(function() {
+    var build = (dakalBuild || []).map(function(it) { return Object.assign({}, it, { _catalog: "dakal_build", _catalogLabel: "\u05D1\u05E0\u05D9\u05D9\u05D4" }); });
+    var maint = (dakalMaint || []).map(function(it) { return Object.assign({}, it, { _catalog: "dakal_maint", _catalogLabel: "\u05EA\u05D7\u05D6\u05D5\u05E7\u05D4" }); });
+    return build.concat(maint);
+  }, [dakalBuild, dakalMaint]);
+
+  // helpers שליפה — פריטי דקל עשויים להיות בשני דפוסים (code/itemNum, name/desc)
+  var getCode = function(it) { return it.code || it.itemNum || ""; };
+  var getName = function(it) { return it.name || it.desc || ""; };
+
+  // סינון
+  var filtered = React.useMemo(function() {
+    var q = search.trim().toLowerCase();
+    return (allDakalItems || []).filter(function(it) {
+      if (catalogFilter !== "all" && it._catalog !== catalogFilter) return false;
+      var code = getCode(it);
+      var name = getName(it).toLowerCase();
+      if (q) {
+        if (name.indexOf(q) < 0 && (code || "").toLowerCase().indexOf(q) < 0) return false;
+      }
+      var hasRecipe = !!decoByCode[code];
+      if (recipeFilter === "has" && !hasRecipe) return false;
+      if (recipeFilter === "missing" && hasRecipe) return false;
+      if (scopeFilter !== "all") {
+        if (!hasRecipe) return false;
+        if (decoByCode[code].workScope !== scopeFilter) return false;
+      }
+      return true;
+    });
+  }, [allDakalItems, search, catalogFilter, recipeFilter, scopeFilter, decoByCode]);
+
+  // חישוב עלות מחושבת של recipe לפי workScope
+  var computeRecipeCost = function(recipe) {
+    if (!recipe) return null;
+    var materialsCost = 0;
+    (recipe.components || []).forEach(function(c) {
+      var supp = (supplierItems || []).find(function(s) {
+        return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
+          || (c.supplierItemName && (s.name || "").trim().toLowerCase() === (c.supplierItemName || "").trim().toLowerCase());
+      });
+      var price = supp ? (supp.price || 0) : 0;
+      materialsCost += (c.quantity || 0) * price;
+    });
+    var laborCost = (recipe.laborHours || 0) * (recipe.laborRate || 0);
+    if (recipe.workScope === "labor_only") return { materialsCost: materialsCost, laborCost: laborCost, total: laborCost };
+    if (recipe.workScope === "material_only") return { materialsCost: materialsCost, laborCost: laborCost, total: materialsCost };
+    return { materialsCost: materialsCost, laborCost: laborCost, total: materialsCost + laborCost };
+  };
+
+  var fmtPrice = function(n) { return (Math.round((n || 0) * 100) / 100).toLocaleString("he-IL"); };
+
+  if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: "#6b7280" } }, "\u05D8\u05D5\u05E2\u05DF \u05D4\u05E8\u05DB\u05D1\u05D5\u05EA...");
+
+  var scopeLabels = {
+    labor_material: "\u05E2\u05D1\u05D5\u05D3\u05D4 + \u05D7\u05D5\u05DE\u05E8",
+    labor_only: "\u05E2\u05D1\u05D5\u05D3\u05D4 \u05D1\u05DC\u05D1\u05D3",
+    material_only: "\u05D7\u05D5\u05DE\u05E8 \u05D1\u05DC\u05D1\u05D3"
+  };
+  var scopeColors = {
+    labor_material: { bg: "#eff6ff", fg: "#1e40af" },
+    labor_only: { bg: "#fef3c7", fg: "#92400e" },
+    material_only: { bg: "#f3e8ff", fg: "#6b21a8" }
+  };
+
+  return /* @__PURE__ */ React.createElement("div", null,
+    /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", padding: "12px 16px", borderRadius: 8, marginBottom: 14, color: "#1e40af" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 14, marginBottom: 4 } }, "\u2696\uFE0F \u05D4\u05E8\u05DB\u05D1\u05D5\u05EA (D-4a-1 \u2014 browse view)"),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "Editor modal \u05D9\u05D9\u05D1\u05E0\u05D4 \u05D1-D-4a-2. \u05DB\u05E8\u05D2\u05E2 \u05E0\u05D9\u05EA\u05DF \u05DC\u05D3\u05E4\u05D3\u05E3 \u05D1\u05E4\u05E8\u05D9\u05D8\u05D9 \u05D3\u05E7\u05DC, \u05DC\u05E1\u05E0\u05DF \u05D5\u05DC\u05E8\u05D0\u05D5\u05EA \u05D0\u05D9\u05DC\u05D5 \u05D9\u05E9 \u05D4\u05E8\u05DB\u05D1\u05D5\u05EA \u05E9\u05DE\u05D5\u05E8\u05D5\u05EA.")
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { background: "#f9fafb", padding: "10px 14px", borderRadius: 8, marginBottom: 14, display: "flex", gap: 24, fontSize: 12, color: "#374151", fontWeight: 600, flexWrap: "wrap" } },
+      /* @__PURE__ */ React.createElement("span", null, "\u05E1\u05D4\"\u05DB \u05E4\u05E8\u05D9\u05D8\u05D9 \u05D3\u05E7\u05DC: " + allDakalItems.length),
+      /* @__PURE__ */ React.createElement("span", null, "\u05D4\u05E8\u05DB\u05D1\u05D5\u05EA \u05E9\u05DE\u05D5\u05E8\u05D5\u05EA: " + decompositions.length),
+      /* @__PURE__ */ React.createElement("span", null, "\u05DE\u05D5\u05E6\u05D2\u05D9\u05DD: " + filtered.length + " \u05DE\u05EA\u05D5\u05DA " + allDakalItems.length)
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" } },
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05D7\u05D9\u05E4\u05D5\u05E9 (\u05E9\u05DD/\u05E7\u05D5\u05D3)", style: { flex: 1, minWidth: 200 } },
+        /* @__PURE__ */ React.createElement(Input, { value: search, onChange: function(e){ setSearch(e.target.value); }, placeholder: "\u05D4\u05E7\u05DC\u05D3..." })
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E7\u05D8\u05DC\u05D5\u05D2", style: { maxWidth: 150 } },
+        /* @__PURE__ */ React.createElement(Select, { value: catalogFilter, onChange: function(e){ setCatalogFilter(e.target.value); } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05D4\u05DB\u05DC"),
+          /* @__PURE__ */ React.createElement("option", { value: "dakal_build" }, "\uD83C\uDFD7 \u05D1\u05E0\u05D9\u05D9\u05D4"),
+          /* @__PURE__ */ React.createElement("option", { value: "dakal_maint" }, "\uD83D\uDD27 \u05EA\u05D7\u05D6\u05D5\u05E7\u05D4")
+        )
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E8\u05DB\u05D1\u05D4", style: { maxWidth: 140 } },
+        /* @__PURE__ */ React.createElement(Select, { value: recipeFilter, onChange: function(e){ setRecipeFilter(e.target.value); } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05D4\u05DB\u05DC"),
+          /* @__PURE__ */ React.createElement("option", { value: "has" }, "\u2713 \u05D9\u05E9 \u05D4\u05E8\u05DB\u05D1\u05D4"),
+          /* @__PURE__ */ React.createElement("option", { value: "missing" }, "\u2717 \u05D7\u05E1\u05E8")
+        )
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D5\u05D2 \u05E2\u05D1\u05D5\u05D3\u05D4", style: { maxWidth: 160 } },
+        /* @__PURE__ */ React.createElement(Select, { value: scopeFilter, onChange: function(e){ setScopeFilter(e.target.value); } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05D4\u05DB\u05DC"),
+          /* @__PURE__ */ React.createElement("option", { value: "labor_material" }, "\u05E2\u05D1\u05D5\u05D3\u05D4 + \u05D7\u05D5\u05DE\u05E8"),
+          /* @__PURE__ */ React.createElement("option", { value: "labor_only" }, "\u05E2\u05D1\u05D5\u05D3\u05D4 \u05D1\u05DC\u05D1\u05D3"),
+          /* @__PURE__ */ React.createElement("option", { value: "material_only" }, "\u05D7\u05D5\u05DE\u05E8 \u05D1\u05DC\u05D1\u05D3")
+        )
+      )
+    ),
+    filtered.length === 0
+      ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 40, color: "#9ca3af", fontSize: 13 } }, "\u05D0\u05D9\u05DF \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05EA\u05D5\u05D0\u05DE\u05D9\u05DD \u05DC\u05E1\u05D9\u05E0\u05D5\u05DF.")
+      : /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden", background: "#fff" } },
+          /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "100px 1fr 70px 90px 90px 110px 110px 90px", gap: 6, padding: "8px 10px", background: "#f9fafb", fontWeight: 700, color: "#6b7280", fontSize: 11, borderBottom: "1px solid #e5e7eb" } },
+            /* @__PURE__ */ React.createElement("div", null, "\u05E7\u05D5\u05D3"),
+            /* @__PURE__ */ React.createElement("div", null, "\u05EA\u05D9\u05D0\u05D5\u05E8"),
+            /* @__PURE__ */ React.createElement("div", null, "\u05D9\u05D7\u05D9\u05D3\u05D4"),
+            /* @__PURE__ */ React.createElement("div", null, "\u05E7\u05D8\u05DC\u05D5\u05D2"),
+            /* @__PURE__ */ React.createElement("div", null, "\u05DE\u05D7\u05D9\u05E8 \u05D3\u05E7\u05DC"),
+            /* @__PURE__ */ React.createElement("div", null, "\u05E2\u05DC\u05D5\u05EA \u05DE\u05D7\u05D5\u05E9\u05D1\u05EA"),
+            /* @__PURE__ */ React.createElement("div", null, "\u05E1\u05D5\u05D2"),
+            /* @__PURE__ */ React.createElement("div", null, "")
+          ),
+          filtered.slice(0, 200).map(function(it, i) {
+            var code = getCode(it);
+            var name = getName(it);
+            var unit = it.unit || "\u2014";
+            var dakalPrice = typeof it.price === "number" ? it.price : (parseFloat(it.price) || 0);
+            var recipe = decoByCode[code];
+            var computed = recipe ? computeRecipeCost(recipe) : null;
+            var scopeLabel = recipe ? (scopeLabels[recipe.workScope] || recipe.workScope) : null;
+            var scopeClr = recipe && scopeColors[recipe.workScope] ? scopeColors[recipe.workScope] : { bg: "#f3f4f6", fg: "#6b7280" };
+            return /* @__PURE__ */ React.createElement("div", {
+              key: it._catalog + "_" + (code || "x") + "_" + i,
+              style: { display: "grid", gridTemplateColumns: "100px 1fr 70px 90px 90px 110px 110px 90px", gap: 6, padding: "8px 10px", borderBottom: "1px solid #f3f4f6", fontSize: 12, alignItems: "center" }
+            },
+              /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "monospace", fontSize: 11, color: "#6b7280" } }, code || "\u2014"),
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: name }, name),
+              /* @__PURE__ */ React.createElement("div", { style: { color: "#6b7280", fontSize: 11 } }, unit),
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: "#f3f4f6", color: "#374151", borderRadius: 10, fontSize: 10, fontWeight: 600 } }, it._catalogLabel)
+              ),
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600 } }, dakalPrice ? "\u20AA" + fmtPrice(dakalPrice) : "\u2014"),
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: computed ? "#1e40af" : "#9ca3af" } }, computed ? "\u20AA" + fmtPrice(computed.total) : "\u2014"),
+              /* @__PURE__ */ React.createElement("div", null,
+                recipe
+                  ? /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: scopeClr.bg, color: scopeClr.fg, borderRadius: 10, fontSize: 10, fontWeight: 600 } }, scopeLabel)
+                  : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, color: "#9ca3af" } }, "\u2014")
+              ),
+              /* @__PURE__ */ React.createElement("button", {
+                disabled: true,
+                title: "Editor \u05D9\u05D2\u05D9\u05E2 \u05D1-D-4a-2",
+                style: { fontSize: 11, padding: "4px 10px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: 4, cursor: "not-allowed", color: "#9ca3af", fontFamily: "inherit", fontWeight: 600, opacity: 0.6 }
+              }, recipe ? "\u270F\uFE0F \u05E2\u05E8\u05D5\u05DA" : "+ \u05E6\u05D5\u05E8")
+            );
+          }),
+          filtered.length > 200 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px", textAlign: "center", fontSize: 11, color: "#6b7280", background: "#f9fafb" } }, "\u05DE\u05D5\u05E6\u05D2\u05D9\u05DD 200 \u05E8\u05D0\u05E9\u05D5\u05E0\u05D9\u05DD \u05DE\u05EA\u05D5\u05DA " + filtered.length + ". \u05E6\u05DE\u05E6\u05DD \u05E1\u05D9\u05E0\u05D5\u05DF \u05DC\u05E8\u05D0\u05D5\u05EA \u05D9\u05D5\u05EA\u05E8.")
+        )
   );
 }
 
