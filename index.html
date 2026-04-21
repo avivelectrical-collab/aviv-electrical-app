@@ -4800,6 +4800,15 @@ function PurchaseTracking() {
   const [searchText, setSearchText] = React.useState("");
   const [sortBy, setSortBy] = React.useState("totalSpending");
   const [detailItem, setDetailItem] = React.useState(null);
+  const [backfillRunning, setBackfillRunning] = React.useState(false);
+  const [backfillStatus, setBackfillStatus] = React.useState(null);
+
+  // threshold of 6 months ago (ISO) — מחושב פעם אחת per mount
+  var sixMonthsAgoISO = React.useMemo(function() {
+    var d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   React.useEffect(function() {
     (async function() {
@@ -4848,6 +4857,7 @@ function PurchaseTracking() {
       var recs = g.records.slice().sort(function(a,b){ return (a.invoiceDate||"").localeCompare(b.invoiceDate||""); });
       var totalQty = 0, totalSpending = 0, weightedSum = 0;
       var prices = [], suppSet = {}, invSet = {};
+      var last6moInvSet = {}, last6moQty = 0;
       recs.forEach(function(r) {
         var qty = r.qty || 0;
         var price = r.unitPrice || 0;
@@ -4856,6 +4866,11 @@ function PurchaseTracking() {
         if (qty > 0 && price > 0) { weightedSum += qty * price; prices.push(price); }
         if (r.supplier) suppSet[r.supplier] = true;
         if (r.supplierInvoiceId) invSet[r.supplierInvoiceId] = true;
+        // 6-month rolling window (D-2c)
+        if (r.invoiceDate && r.invoiceDate >= sixMonthsAgoISO) {
+          last6moQty += qty;
+          if (r.supplierInvoiceId) last6moInvSet[r.supplierInvoiceId] = true;
+        }
       });
       var avgPrice = totalQty > 0 ? weightedSum / totalQty : 0;
       var minPrice = prices.length ? Math.min.apply(null, prices) : 0;
@@ -4876,10 +4891,12 @@ function PurchaseTracking() {
         purchaseCount: Object.keys(invSet).length,
         suppliers: Object.keys(suppSet),
         firstDate: recs[0] ? recs[0].invoiceDate : null,
-        lastDate: recs[recs.length-1] ? recs[recs.length-1].invoiceDate : null
+        lastDate: recs[recs.length-1] ? recs[recs.length-1].invoiceDate : null,
+        last6moCount: Object.keys(last6moInvSet).length,
+        last6moQty: last6moQty
       });
     });
-  }, [filtered]);
+  }, [filtered, sixMonthsAgoISO]);
 
   // מיון לפי הבחירה
   var sorted = React.useMemo(function() {
@@ -4894,14 +4911,82 @@ function PurchaseTracking() {
     });
   }, [grouped, sortBy]);
 
+  // המלצות לקנייה מרוכזת: ≥4 רכישות ב-6 חודשים האחרונים (D-2c)
+  var recommendations = React.useMemo(function() {
+    return grouped.filter(function(g){ return g.last6moCount >= 4; })
+      .slice()
+      .sort(function(a,b){ return b.last6moCount - a.last6moCount; });
+  }, [grouped]);
+
   var fmt = function(n) { return Math.round(n||0).toLocaleString("he-IL"); };
   var fmtPrice = function(n) { return (Math.round((n||0)*100)/100).toLocaleString("he-IL"); };
+
+  // Backfill: יוצר invoice_items מ-supplier_invoices.items[] לרשומות שאין להן כיסוי (idempotent)
+  var doBackfill = async function() {
+    if (backfillRunning) return;
+    setBackfillRunning(true);
+    setBackfillStatus(null);
+    try {
+      var _results = await Promise.all([
+        db.get("supplier_invoices"),
+        db.get("invoice_items")
+      ]);
+      var suppInvs = Array.isArray(_results[0]) ? _results[0] : [];
+      var existing = Array.isArray(_results[1]) ? _results[1] : [];
+      var covered = {};
+      existing.forEach(function(ii){ if (ii.supplierInvoiceId) covered[ii.supplierInvoiceId] = true; });
+      var newRecs = [];
+      var processedInvoices = 0;
+      suppInvs.forEach(function(inv) {
+        if (covered[inv.id]) return;
+        if (!inv.items || !inv.items.length) return;
+        processedInvoices++;
+        inv.items.forEach(function(it) {
+          newRecs.push({
+            id: genId(),
+            supplierInvoiceId: inv.id,
+            transactionId: inv.transactionId || null,
+            supplier: inv.supplier || "",
+            invoiceDate: inv.invoiceDate || null,
+            itemCode: it.itemCode || null,
+            name: it.name || "",
+            unit: it.unit || "\u05D9\u05D7'",
+            qty: typeof it.qty === "number" ? it.qty : 0,
+            unitPrice: typeof it.unitPrice === "number" ? it.unitPrice : 0,
+            totalPrice: typeof it.totalPrice === "number" ? it.totalPrice : null,
+            confidence: typeof it.confidence === "number" ? it.confidence : null,
+            category: null,
+            savedToCatalog: true,
+            approved: true,
+            backfilled: true,
+            createdAt: inv.createdAt || new Date().toISOString()
+          });
+        });
+      });
+      if (newRecs.length > 0) {
+        await db.set("invoice_items", existing.concat(newRecs));
+        var updated = await db.get("invoice_items") || [];
+        setItems(updated);
+        setBackfillStatus("\u2705 \u05D4\u05D5\u05E9\u05DC\u05DD: " + newRecs.length + " \u05E8\u05E9\u05D5\u05DE\u05D5\u05EA \u05D7\u05D3\u05E9\u05D5\u05EA \u05DE-" + processedInvoices + " \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA");
+      } else {
+        setBackfillStatus("\u2139\uFE0F \u05D0\u05D9\u05DF \u05DE\u05D4 \u05DC\u05D8\u05E2\u05D5\u05DF \u2014 \u05DB\u05DC \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05DB\u05D1\u05E8 \u05DE\u05DB\u05D5\u05E1\u05D5\u05EA");
+      }
+    } catch (err) {
+      console.error("[backfill]", err);
+      setBackfillStatus("\u274C \u05E9\u05D2\u05D9\u05D0\u05D4: " + err.message);
+    }
+    setBackfillRunning(false);
+  };
 
   if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: "#6b7280" } }, "\u05D8\u05D5\u05E2\u05DF \u05E0\u05EA\u05D5\u05E0\u05D9 \u05E8\u05DB\u05D9\u05E9\u05D5\u05EA...");
 
   var totalSpendingAll = sorted.reduce(function(s, g){ return s + g.totalSpending; }, 0);
 
   return /* @__PURE__ */ React.createElement("div", null,
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 10, alignItems: "center", flexWrap: "wrap" } },
+      /* @__PURE__ */ React.createElement("button", { onClick: doBackfill, disabled: backfillRunning, style: { fontSize: 12, padding: "6px 14px", background: backfillRunning ? "#f3f4f6" : "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, cursor: backfillRunning ? "wait" : "pointer", color: "#1d4ed8", fontWeight: 600, fontFamily: "inherit" } }, backfillRunning ? "\u23F3 \u05D8\u05D5\u05E2\u05DF..." : "\uD83D\uDCE5 \u05D8\u05E2\u05DF \u05E0\u05EA\u05D5\u05E0\u05D9\u05DD \u05DE\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05D9\u05E9\u05E0\u05D5\u05EA"),
+      backfillStatus && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: backfillStatus.indexOf("\u274C") === 0 ? "#dc2626" : backfillStatus.indexOf("\u2139") === 0 ? "#6b7280" : "#059669" } }, backfillStatus)
+    ),
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" } },
       /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05EA\u05D0\u05E8\u05D9\u05DA", style: { maxWidth: 140 } },
         /* @__PURE__ */ React.createElement(Input, { type: "date", value: dateFrom, onChange: function(e){ setDateFrom(e.target.value); } })
@@ -4934,6 +5019,27 @@ function PurchaseTracking() {
       /* @__PURE__ */ React.createElement("span", null, "\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D9\u05D9\u05D7\u05D5\u05D3\u05D9\u05D9\u05DD: " + sorted.length),
       /* @__PURE__ */ React.createElement("span", null, "\u05E1\u05D4\"\u05DB \u05D4\u05D5\u05E6\u05D0\u05D4: \u20AA" + fmt(totalSpendingAll)),
       /* @__PURE__ */ React.createElement("span", null, "\u05E8\u05E9\u05D5\u05DE\u05D5\u05EA \u05DE\u05E1\u05D5\u05E0\u05E0\u05D5\u05EA: " + filtered.length + " \u05DE\u05EA\u05D5\u05DA " + items.length)
+    ),
+
+    recommendations.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 8, padding: "12px 14px", marginBottom: 14 } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", fontSize: 13, marginBottom: 4 } }, "\uD83D\uDED2 \u05D4\u05DE\u05DC\u05E6\u05D5\u05EA \u05DC\u05E7\u05E0\u05D9\u05D9\u05D4 \u05DE\u05E8\u05D5\u05DB\u05D6\u05EA (" + recommendations.length + ")"),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginBottom: 10, opacity: 0.85 } }, "\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05E9\u05E0\u05E7\u05E0\u05D5 4+ \u05E4\u05E2\u05DE\u05D9\u05DD \u05D1-6 \u05D7\u05D5\u05D3\u05E9\u05D9\u05DD \u05D4\u05D0\u05D7\u05E8\u05D5\u05E0\u05D9\u05DD. \u05E9\u05E7\u05D5\u05DC \u05D4\u05D6\u05DE\u05E0\u05D4 \u05DE\u05E8\u05D5\u05DB\u05D6\u05EA \u05DC\u05D7\u05D9\u05E1\u05DB\u05D5\u05DF \u05D1\u05D4\u05E0\u05D7\u05EA \u05DB\u05DE\u05D5\u05EA \u05D0\u05D5 \u05E4\u05D7\u05D5\u05EA \u05D8\u05E8\u05D7\u05D4 \u05DE\u05E0\u05D4\u05DC\u05D9\u05EA."),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } },
+        recommendations.slice(0, 10).map(function(r) {
+          return /* @__PURE__ */ React.createElement("div", {
+            key: r.key,
+            onClick: function(){ setDetailItem(r); },
+            style: { display: "grid", gridTemplateColumns: "1fr 90px 120px 90px 100px", gap: 10, padding: "6px 10px", background: "#fff", borderRadius: 4, fontSize: 11, alignItems: "center", cursor: "pointer" }
+          },
+            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: r.name }, r.name),
+            /* @__PURE__ */ React.createElement("div", { style: { color: "#6b7280" } }, r.last6moCount + " \u05E8\u05DB\u05D9\u05E9\u05D5\u05EA"),
+            /* @__PURE__ */ React.createElement("div", { style: { color: "#6b7280" } }, "\u05E1\u05D4\"\u05DB " + fmt(r.last6moQty) + " " + (r.unit || "\u05D9\u05D7'")),
+            /* @__PURE__ */ React.createElement("div", null, "\u20AA" + fmtPrice(r.avgPrice) + "/\u05D9\u05D7'"),
+            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e" } }, "\u20AA" + fmt(r.last6moQty * r.avgPrice))
+          );
+        })
+      ),
+      recommendations.length > 10 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, fontSize: 11, color: "#92400e", opacity: 0.7 } }, "+ " + (recommendations.length - 10) + " \u05E0\u05D5\u05E1\u05E4\u05D9\u05DD (\u05DE\u05D9\u05D9\u05DF \u05DC\u05E4\u05D9 \u05DE\u05E1\u05E4\u05E8 \u05E8\u05DB\u05D9\u05E9\u05D5\u05EA \u05D1\u05D8\u05D1\u05DC\u05D4 \u05DC\u05DE\u05D8\u05D4)")
     ),
 
     sorted.length === 0
@@ -4972,7 +5078,10 @@ function PurchaseTracking() {
               /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600 } }, "\u20AA" + fmtPrice(g.avgPrice)),
               /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#1e40af" } }, "\u20AA" + fmt(g.totalSpending)),
               /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#6b7280" } }, g.purchaseCount),
-              /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: trendColor, fontWeight: 600, fontSize: 11 } }, g.purchaseCount >= 2 ? trendIcon + " " + trendText : "\u2014"),
+              /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: trendColor, fontWeight: 600, fontSize: 11 } },
+                g.purchaseCount >= 2 ? trendIcon + " " + trendText : "\u2014",
+                g.volatility > 0.3 && /* @__PURE__ */ React.createElement("span", { title: "\u05EA\u05E0\u05D5\u05D3\u05EA\u05D9\u05D5\u05EA \u05DE\u05D7\u05D9\u05E8 \u05D2\u05D1\u05D5\u05D4\u05D4: \u20AA" + fmtPrice(g.minPrice) + "\u2013\u20AA" + fmtPrice(g.maxPrice), style: { marginInlineStart: 4 } }, "\u26A1")
+              ),
               /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", alignItems: "center" } }, /* @__PURE__ */ React.createElement(Sparkline, { records: g.records, color: trendColor })),
               /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title: g.suppliers.join(", ") }, suppText)
             );
