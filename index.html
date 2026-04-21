@@ -1487,8 +1487,8 @@ function AttendancePage({ user }) {
   const load = async () => {
     const [r, p, u] = await Promise.all([db.get("attendance") || [], db.get("projects") || [], db.get("users") || []]);
     setRecords(Array.isArray(r) ? r : []);
-    setProjects(p);
-    setUsers(u);
+    setProjects(p || []);
+    setUsers(u || []);
   };
   useEffect(() => {
     load();
