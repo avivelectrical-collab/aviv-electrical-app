@@ -1723,10 +1723,10 @@ function FinancialPage() {
         db.get("expenses") || [],
         db.get("worklogs") || []
       ]);
-      setProjects(p);
-      setInvoices(Array.isArray(i) ? i : []);
-      setExpenses(Array.isArray(e) ? e : []);
-      setLogs(Array.isArray(l) ? l : []);
+      setProjects(p || []);
+      setInvoices(i || []);
+      setExpenses(e || []);
+      setLogs(l || []);
       setLoading(false);
     })();
   }, []);
