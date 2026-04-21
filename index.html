@@ -5097,6 +5097,10 @@ function AlertsPage() {
   const [invoiceItems, setInvoiceItems] = React.useState([]);
   const [catalog, setCatalog] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [detailItem, setDetailItem] = React.useState(null);
+  const [typeFilter, setTypeFilter] = React.useState("all");
+  const [severityFilter, setSeverityFilter] = React.useState("all");
+  const [searchText, setSearchText] = React.useState("");
 
   React.useEffect(function() {
     (async function() {
@@ -5203,39 +5207,160 @@ function AlertsPage() {
     return priceAlerts.concat(newItemAlerts).concat(dormantAlerts);
   }, [priceAlerts, newItemAlerts, dormantAlerts]);
 
+  // Filter + sort alerts: severity high first, then date desc
+  var filteredAlerts = React.useMemo(function() {
+    var sevOrder = { high: 0, medium: 1, low: 2 };
+    return (allAlerts || []).filter(function(a) {
+      if (typeFilter !== "all" && a.type !== typeFilter) return false;
+      if (severityFilter !== "all" && a.severity !== severityFilter) return false;
+      if (searchText) {
+        var q = searchText.trim().toLowerCase();
+        var name = (a.itemName || "").toLowerCase();
+        var code = (a.itemCode || "").toLowerCase();
+        if (name.indexOf(q) < 0 && code.indexOf(q) < 0) return false;
+      }
+      return true;
+    }).slice().sort(function(a, b) {
+      var s = (sevOrder[a.severity] || 99) - (sevOrder[b.severity] || 99);
+      if (s !== 0) return s;
+      return (b.date || "").localeCompare(a.date || "");
+    });
+  }, [allAlerts, typeFilter, severityFilter, searchText]);
+
+  var fmtPrice = function(n) { return (Math.round((n||0)*100)/100).toLocaleString("he-IL"); };
+
+  // Click "פרטים" — builds PurchaseDetailModal-compatible item from invoiceItems
+  var openDetail = function(alert) {
+    var itemRecords = (invoiceItems || []).filter(function(ii) {
+      var k = ii.itemCode || (ii.name || "").trim().toLowerCase();
+      return k === alert.itemKey;
+    }).sort(function(a, b) { return (a.invoiceDate || "").localeCompare(b.invoiceDate || ""); });
+
+    if (itemRecords.length === 0) {
+      // Dormant items may have no invoice_items (pre-D-1c catalog only)
+      setDetailItem({
+        name: alert.itemName, itemCode: alert.itemCode, unit: alert.unit, records: [],
+        avgPrice: alert.details.lastPrice || 0, minPrice: alert.details.lastPrice || 0,
+        maxPrice: alert.details.lastPrice || 0, totalSpending: 0
+      });
+      return;
+    }
+    var totalQty = 0, totalSpending = 0, weightedSum = 0, prices = [];
+    itemRecords.forEach(function(r) {
+      var qty = r.qty || 0, price = r.unitPrice || 0;
+      totalQty += qty;
+      totalSpending += qty * price;
+      if (qty > 0 && price > 0) { weightedSum += qty * price; prices.push(price); }
+    });
+    setDetailItem({
+      name: alert.itemName, itemCode: alert.itemCode, unit: alert.unit, records: itemRecords,
+      avgPrice: totalQty > 0 ? weightedSum / totalQty : 0,
+      minPrice: prices.length ? Math.min.apply(null, prices) : 0,
+      maxPrice: prices.length ? Math.max.apply(null, prices) : 0,
+      totalSpending: totalSpending
+    });
+  };
+
   if (loading) return /* @__PURE__ */ React.createElement("div", { style: { padding: 40, textAlign: "center", color: "#6b7280" } }, "\u05D8\u05D5\u05E2\u05DF \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA...");
 
   var cardStyle = function(bg, fg) { return { background: bg, color: fg, padding: "14px 16px", borderRadius: 8, textAlign: "center" }; };
   var priceUpCount = priceAlerts.filter(function(a){ return a.type === "price_up"; }).length;
   var priceDownCount = priceAlerts.filter(function(a){ return a.type === "price_down"; }).length;
 
+  var cardSelStyle = function(bg, fg, selected) {
+    return { background: bg, color: fg, padding: "14px 16px", borderRadius: 8, textAlign: "center", cursor: "pointer", border: selected ? "2px solid " + fg : "2px solid transparent", transition: "border 0.15s" };
+  };
+  var toggleType = function(t) { setTypeFilter(typeFilter === t ? "all" : t); };
+
   return /* @__PURE__ */ React.createElement("div", null,
-    /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", padding: "12px 16px", borderRadius: 8, marginBottom: 14, color: "#1e40af" } },
-      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 14, marginBottom: 4 } }, "\uD83D\uDD14 \u05DE\u05E2\u05E8\u05DB\u05EA \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA (D-3a \u2014 Data layer)"),
-      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "UI \u05DE\u05DC\u05D0 \u05D9\u05D1\u05E0\u05D4 \u05D1-D-3b. \u05DB\u05E8\u05D2\u05E2 \u05DE\u05E6\u05D9\u05D2 \u05E1\u05E4\u05D9\u05E8\u05D5\u05EA \u05DC\u05D0\u05D9\u05DE\u05D5\u05EA \u05D4\u05E0\u05EA\u05D5\u05E0\u05D9\u05DD.")
-    ),
-    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 } },
-      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#fee2e2", "#991b1b") },
+    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 } },
+      /* @__PURE__ */ React.createElement("div", { onClick: function(){ toggleType("price_up"); }, style: cardSelStyle("#fee2e2", "#991b1b", typeFilter === "price_up") },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83D\uDD34 \u05E2\u05DC\u05D9\u05D5\u05EA \u05DE\u05D7\u05D9\u05E8 >15%"),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, priceUpCount)
       ),
-      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#d1fae5", "#065f46") },
+      /* @__PURE__ */ React.createElement("div", { onClick: function(){ toggleType("price_down"); }, style: cardSelStyle("#d1fae5", "#065f46", typeFilter === "price_down") },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83D\uDFE2 \u05D9\u05E8\u05D9\u05D3\u05D5\u05EA \u05DE\u05D7\u05D9\u05E8 >15%"),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, priceDownCount)
       ),
-      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#fef3c7", "#92400e") },
+      /* @__PURE__ */ React.createElement("div", { onClick: function(){ toggleType("new_item"); }, style: cardSelStyle("#fef3c7", "#92400e", typeFilter === "new_item") },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83C\uDD95 \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D7\u05D3\u05E9\u05D9\u05DD (\u226460 \u05D9\u05DE\u05D9\u05DD)"),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, newItemAlerts.length)
       ),
-      /* @__PURE__ */ React.createElement("div", { style: cardStyle("#f3f4f6", "#374151") },
+      /* @__PURE__ */ React.createElement("div", { onClick: function(){ toggleType("dormant_item"); }, style: cardSelStyle("#f3f4f6", "#374151", typeFilter === "dormant_item") },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 600, marginBottom: 6 } }, "\uD83D\uDE34 \u05E8\u05D3\u05D5\u05DE\u05D9\u05DD (\u226590 \u05D9\u05DE\u05D9\u05DD)"),
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 28, fontWeight: 800 } }, dormantAlerts.length)
       )
     ),
-    /* @__PURE__ */ React.createElement("div", { style: { marginTop: 20, padding: 12, background: "#f9fafb", borderRadius: 8, fontSize: 11, color: "#6b7280" } },
-      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, "Debug \u2014 \u05DC\u05E2\u05D9\u05D5\u05DF \u05D1\u05DC\u05D1\u05D3:"),
-      /* @__PURE__ */ React.createElement("div", null, "\u05E1\u05D4\"\u05DB alerts: " + allAlerts.length + " | invoice_items: " + invoiceItems.length + " | catalog: " + catalog.length)
-    )
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" } },
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D5\u05D2", style: { maxWidth: 170 } },
+        /* @__PURE__ */ React.createElement(Select, { value: typeFilter, onChange: function(e){ setTypeFilter(e.target.value); } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05D4\u05DB\u05DC"),
+          /* @__PURE__ */ React.createElement("option", { value: "price_up" }, "\uD83D\uDCC8 \u05E2\u05DC\u05D9\u05D5\u05EA"),
+          /* @__PURE__ */ React.createElement("option", { value: "price_down" }, "\uD83D\uDCC9 \u05D9\u05E8\u05D9\u05D3\u05D5\u05EA"),
+          /* @__PURE__ */ React.createElement("option", { value: "new_item" }, "\uD83C\uDD95 \u05D7\u05D3\u05E9\u05D9\u05DD"),
+          /* @__PURE__ */ React.createElement("option", { value: "dormant_item" }, "\uD83D\uDE34 \u05E8\u05D3\u05D5\u05DE\u05D9\u05DD")
+        )
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D3\u05D9\u05E4\u05D5\u05EA", style: { maxWidth: 130 } },
+        /* @__PURE__ */ React.createElement(Select, { value: severityFilter, onChange: function(e){ setSeverityFilter(e.target.value); } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05D4\u05DB\u05DC"),
+          /* @__PURE__ */ React.createElement("option", { value: "high" }, "\uD83D\uDD34 \u05D2\u05D1\u05D5\u05D4\u05D4"),
+          /* @__PURE__ */ React.createElement("option", { value: "medium" }, "\uD83D\uDFE1 \u05D1\u05D9\u05E0\u05D5\u05E0\u05D9\u05EA")
+        )
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05D7\u05D9\u05E4\u05D5\u05E9", style: { flex: 1, minWidth: 140 } },
+        /* @__PURE__ */ React.createElement(Input, { value: searchText, onChange: function(e){ setSearchText(e.target.value); }, placeholder: "\u05E9\u05DD / \u05E7\u05D5\u05D3..." })
+      )
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 8 } },
+      "\u05DE\u05D5\u05E6\u05D2: " + filteredAlerts.length + " \u05DE\u05EA\u05D5\u05DA " + allAlerts.length
+    ),
+    filteredAlerts.length === 0
+      ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 40, color: "#9ca3af", fontSize: 13 } },
+          allAlerts.length === 0
+            ? "\uD83C\uDF89 \u05D0\u05D9\u05DF \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA \u05DB\u05E8\u05D2\u05E2. \u05DB\u05DC \u05D4\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05EA\u05E7\u05D9\u05E0\u05D9\u05DD."
+            : "\u05D0\u05D9\u05DF \u05D4\u05EA\u05E8\u05E2\u05D5\u05EA \u05EA\u05D5\u05D0\u05DE\u05D5\u05EA \u05DC\u05E1\u05D9\u05E0\u05D5\u05DF."
+        )
+      : /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } },
+          filteredAlerts.map(function(alert) {
+            var typeBG = alert.type === "price_up" ? "#fee2e2" : alert.type === "price_down" ? "#d1fae5" : alert.type === "new_item" ? "#fef3c7" : "#f3f4f6";
+            var typeBorder = alert.type === "price_up" ? "#fecaca" : alert.type === "price_down" ? "#a7f3d0" : alert.type === "new_item" ? "#fde68a" : "#d1d5db";
+            var typeColor = alert.type === "price_up" ? "#991b1b" : alert.type === "price_down" ? "#065f46" : alert.type === "new_item" ? "#92400e" : "#374151";
+            var typeIcon = alert.type === "price_up" ? "\uD83D\uDCC8" : alert.type === "price_down" ? "\uD83D\uDCC9" : alert.type === "new_item" ? "\uD83C\uDD95" : "\uD83D\uDE34";
+            var sevDot = alert.severity === "high" ? "#dc2626" : "#d97706";
+            var detailsText = "";
+            if (alert.type === "price_up" || alert.type === "price_down") {
+              detailsText = "\u20AA" + fmtPrice(alert.details.prevPrice) + " \u2192 \u20AA" + fmtPrice(alert.details.currPrice) + " (" + (alert.type === "price_up" ? "\u2191" : "\u2193") + " " + Math.abs(alert.details.deltaPercent).toFixed(1) + "%)";
+            } else if (alert.type === "new_item") {
+              detailsText = "\u05E0\u05E8\u05DB\u05E9 \u05DC\u05E8\u05D0\u05E9\u05D5\u05E0\u05D4 \u05D1-" + (alert.details.firstDate || "\u2014") + " \u05DE-" + (alert.details.firstSupplier || "?") + " \u05D1-\u20AA" + fmtPrice(alert.details.firstPrice);
+            } else {
+              detailsText = "\u05D0\u05D7\u05E8\u05D5\u05DF: " + (alert.details.lastDate || "\u2014") + " (" + alert.details.daysSilent + " \u05D9\u05DE\u05D9\u05DD \u05E9\u05E7\u05D8), \u20AA" + fmtPrice(alert.details.lastPrice);
+            }
+            return /* @__PURE__ */ React.createElement("div", {
+              key: alert.id,
+              style: { display: "grid", gridTemplateColumns: "14px 1fr 80px 90px", gap: 10, padding: "10px 12px", background: typeBG, border: "1px solid " + typeBorder, borderRadius: 6, alignItems: "center" }
+            },
+              /* @__PURE__ */ React.createElement("div", { style: { width: 10, height: 10, borderRadius: "50%", background: sevDot }, title: alert.severity }),
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: typeColor } },
+                  typeIcon + " " + alert.itemName + (alert.itemCode ? " [" + alert.itemCode + "]" : "")
+                ),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 2 } },
+                  detailsText + (alert.supplier ? " \u2022 " + alert.supplier : "")
+                )
+              ),
+              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: "#6b7280", textAlign: "center" } }, alert.date),
+              /* @__PURE__ */ React.createElement("button", {
+                onClick: function(){ openDetail(alert); },
+                style: { fontSize: 11, padding: "5px 10px", background: "#fff", border: "1px solid " + typeBorder, borderRadius: 4, cursor: "pointer", color: typeColor, fontFamily: "inherit", fontWeight: 600 }
+              }, "\uD83D\uDC41\uFE0F \u05E4\u05E8\u05D8\u05D9\u05DD")
+            );
+          })
+        ),
+    detailItem && /* @__PURE__ */ React.createElement(PurchaseDetailModal, {
+      item: detailItem,
+      onClose: function(){ setDetailItem(null); }
+    })
   );
 }
 
