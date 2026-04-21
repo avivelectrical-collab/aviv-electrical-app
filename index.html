@@ -5231,17 +5231,25 @@ function AlertsPage() {
 
   // Click "פרטים" — builds PurchaseDetailModal-compatible item from invoiceItems
   var openDetail = function(alert) {
+    // Lenient match: ב-itemCode אם קיים משני הצדדים, או לפי name מנורמל — מכסה מקרים של פריטים
+    // עם itemCode בקטלוג אבל בלי itemCode ברשומות invoice_items ישנות (pre-D-1a).
+    var alertCode = alert.itemCode || null;
+    var alertName = (alert.itemName || "").trim().toLowerCase();
     var itemRecords = (invoiceItems || []).filter(function(ii) {
-      var k = ii.itemCode || (ii.name || "").trim().toLowerCase();
-      return k === alert.itemKey;
+      var iiCode = ii.itemCode || null;
+      var iiName = (ii.name || "").trim().toLowerCase();
+      if (alertCode && iiCode && alertCode === iiCode) return true;
+      if (alertName && iiName && alertName === iiName) return true;
+      return false;
     }).sort(function(a, b) { return (a.invoiceDate || "").localeCompare(b.invoiceDate || ""); });
 
     if (itemRecords.length === 0) {
-      // Dormant items may have no invoice_items (pre-D-1c catalog only)
+      // Legitimate — פריט רק בקטלוג, מעולם לא נרשם ב-invoice_items (seed / ידני / pre-D-1c)
+      var fallbackPrice = alert.details.lastPrice || alert.details.currPrice || alert.details.firstPrice || 0;
       setDetailItem({
         name: alert.itemName, itemCode: alert.itemCode, unit: alert.unit, records: [],
-        avgPrice: alert.details.lastPrice || 0, minPrice: alert.details.lastPrice || 0,
-        maxPrice: alert.details.lastPrice || 0, totalSpending: 0
+        avgPrice: fallbackPrice, minPrice: fallbackPrice,
+        maxPrice: fallbackPrice, totalSpending: 0
       });
       return;
     }
