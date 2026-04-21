@@ -3806,7 +3806,10 @@ function BOQMode(props) {
   const setLineSearch = function(lineId, val) { setDakalSearch(function(p){ return Object.assign({}, p, { [lineId]: val }); }); };
   const [activeDakalPicker, setActiveDakalPicker] = React.useState(null);
   const [dakalPickerQ, setDakalPickerQ] = React.useState("");
-  React.useEffect(function(){(async function(){var s=await db.get("business_settings");if(s)setBizSettings(s);})();}, []);
+  const [decompositions, setDecompositions] = React.useState([]);
+  const [editingLine, setEditingLine] = React.useState(null);
+  const [editingLineRecipe, setEditingLineRecipe] = React.useState(null);
+  React.useEffect(function(){(async function(){var s=await db.get("business_settings");if(s)setBizSettings(s);var d=await db.get("item_decompositions");setDecompositions(Array.isArray(d)?d:[]);})();}, []);
   var liftEq = (bizSettings&&bizSettings.liftingEquipment)||[
     {id:"crane",name:"מנוף",costPerDay:3500,costPerHour:450},
     {id:"platform",name:"במה נסעת",costPerDay:1200,costPerHour:150},
@@ -3882,6 +3885,76 @@ function BOQMode(props) {
         return x.lineId !== id;
       });
     });
+  };
+  var normDesc = function(s) { return (s || "").trim().toLowerCase().replace(/\s+/g, " "); };
+  var getLineKey = function(line) {
+    if (line.ai && line.ai.dakalCode) return line.ai.dakalCode;
+    return "desc:" + normDesc(line.desc);
+  };
+  var openLineEditor = function(line) {
+    var key = getLineKey(line);
+    var existing = (decompositions || []).find(function(d){ return d.dakalItemCode === key; });
+    setEditingLine(line);
+    setEditingLineRecipe(existing ? Object.assign({}, existing) : {
+      dakalItemCode: key,
+      dakalItemName: line.desc || "",
+      dakalCatalog: (line.ai && line.ai.dakalCode) ? "dakal_build" : "free_text",
+      workScope: "labor_material",
+      components: [],
+      laborLevel: "certified",
+      laborHours: 1,
+      laborRate: 150,
+      notes: "",
+      active: true
+    });
+  };
+  var closeLineEditor = function() { setEditingLine(null); setEditingLineRecipe(null); };
+  var saveLineRecipe = async function() {
+    var now = new Date().toISOString();
+    var current = (decompositions || []).slice();
+    var saved;
+    if (editingLineRecipe.id) {
+      saved = Object.assign({}, editingLineRecipe, { updatedAt: now });
+      current = current.map(function(d){ return d.id === saved.id ? saved : d; });
+    } else {
+      saved = Object.assign({}, editingLineRecipe, { id: genId(), createdAt: now, updatedAt: now });
+      current = current.concat([saved]);
+    }
+    await db.set("item_decompositions", current);
+    setDecompositions(current);
+    var newMats = (saved.components || []).map(function(c) {
+      var supp = (supplierItems || []).find(function(s){
+        return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
+          || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
+      });
+      return {
+        code: (supp && supp.itemCode) || c.supplierItemKey || "",
+        name: c.supplierItemName || (supp && supp.name) || "",
+        unit: c.unit || (supp && supp.unit) || "",
+        qtyPerUnit: c.quantity || 0,
+        price: supp ? (supp.price || 0) : 0,
+        source: "supplier"
+      };
+    });
+    var matCost = newMats.reduce(function(s, m){ return s + (m.qtyPerUnit || 0) * (m.price || 0); }, 0);
+    var laborCost = (saved.laborHours || 0) * (saved.laborRate || 0);
+    var totalCost = saved.workScope === "labor_only" ? laborCost
+                  : saved.workScope === "material_only" ? matCost
+                  : matCost + laborCost;
+    var ln = lines.find(function(l){ return l.id === editingLine.id; });
+    if (ln) {
+      updLine(editingLine.id, "ai", Object.assign({}, ln.ai || {}, { materials: newMats, matCostPerUnit: matCost, recipeId: saved.id }));
+      updLine(editingLine.id, "basePrice", Math.round(totalCost * 1000000) / 1000000);
+    }
+    closeLineEditor();
+  };
+  var deleteLineRecipe = async function() {
+    if (!editingLineRecipe.id) { closeLineEditor(); return; }
+    if (!window.confirm("\u05DC\u05DE\u05D7\u05D5\u05E7 \u05D4\u05E4\u05D9\u05E8\u05D5\u05E7 \u05DC\u05E9\u05D5\u05E8\u05D4 \u05D6\u05D5?")) return;
+    var next = (decompositions || []).filter(function(d){ return d.id !== editingLineRecipe.id; });
+    await db.set("item_decompositions", next);
+    setDecompositions(next);
+    closeLineEditor();
   };
   var analyzeOne = async function(line, contextAnswers) {
     if (!line.desc.trim()) return;
@@ -4332,37 +4405,15 @@ function BOQMode(props) {
         ) : null
       ),
       /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, borderTop: "1px solid #86efac", paddingTop: 6 } },
-        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#374151", fontSize: 10, marginBottom: 4 } }, "\u05D4\u05D5\u05E1\u05E3 \u05E4\u05E8\u05D9\u05D8 \u05DE\u05D3\u05E7\u05DC:"),
-        /* @__PURE__ */ React.createElement("input", { type: "search", placeholder: "\u05D7\u05E4\u05E9 \u05D1\u05DE\u05D7\u05D9\u05E8\u05D5\u05DF \u05D3\u05E7\u05DC...", value: dakalSearch[line.id]||"",
-          onChange: function(e) { setLineSearch(line.id, e.target.value); },
-          style: { width: "100%", padding: "3px 6px", border: "1px solid #d1d5db", borderRadius: 3, fontSize: 10, fontFamily: "inherit", marginBottom: 3 }
-        }),
-        /* Search results */
-        (dakalSearch[line.id] && dakalSearch[line.id].length > 1) ? /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 100, overflowY: "auto" } },
-          (function() {
-            var q = dakalSearch[line.id].toLowerCase();
-            var results = (dakalB||[]).concat(dakalM||[]).filter(function(d){ return (d.d||"").includes(q) || (d.c||"").includes(q); }).slice(0,6);
-            return results.map(function(d) {
-              return /* @__PURE__ */ React.createElement("div", { key: d.c,
-                onClick: function() {
-                  var newMat = { code: d.c, name: d.d.slice(0,40), unit: d.u||"\u05D9\u05D7'", qtyPerUnit: 1, price: d.h||0, source: "dakal" };
-                  if (!line.ai) return;
-                  var newMats = (line.ai.materials||[]).concat([newMat]);
-                  var newMatCost = newMats.reduce(function(s,m){
-                    var sp=(supplierItems||[]).find(function(x){return x.id===m.code||x.name===m.name;});
-                    return s+(parseFloat(m.qtyPerUnit)||0)*(sp?sp.price:(parseFloat(m.price)||0));
-                  },0);
-                  updLine(line.id, "ai", Object.assign({}, line.ai || {}, { materials: newMats, matCostPerUnit: newMatCost }));
-                  setLineSearch(line.id, "");
-                },
-                style: { padding: "3px 6px", cursor: "pointer", fontSize: 10, borderBottom: "0.5px solid #e5e7eb", display: "flex", justifyContent: "space-between" }
-              },
-              /* @__PURE__ */ React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 } }, d.c, " ", d.d.slice(0,35)),
-              /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed", whiteSpace: "nowrap" } }, "\u20AA", fmt3(d.h))
-              );
-            });
-          })()
-        ) : null
+        (function(){
+          var key = getLineKey(line);
+          var hasRecipe = !!(decompositions || []).find(function(d){ return d.dakalItemCode === key; });
+          return /* @__PURE__ */ React.createElement("button", {
+            type: "button",
+            onClick: function(){ openLineEditor(line); },
+            style: { width: "100%", padding: "6px 10px", fontSize: 11, fontWeight: 700, background: hasRecipe ? "#eff6ff" : "#f0fdf4", color: hasRecipe ? "#1e40af" : "#166534", border: "1px solid " + (hasRecipe ? "#bfdbfe" : "#bbf7d0"), borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }
+          }, hasRecipe ? "\u270F\uFE0F \u05E2\u05E8\u05D5\u05DA \u05E4\u05D9\u05E8\u05D5\u05E7 (\u05E9\u05DE\u05D5\u05E8)" : "\u2702\uFE0F \u05E2\u05E8\u05D5\u05DA \u05E4\u05D9\u05E8\u05D5\u05E7");
+        })()
       )
           )
         )
@@ -4522,7 +4573,21 @@ function BOQMode(props) {
         setModal(null);
       }
     }
-  ) : null);
+  ) : null, editingLine && editingLineRecipe && /* @__PURE__ */ React.createElement(AssemblyEditor, {
+    item: {
+      code: (editingLine.ai && editingLine.ai.dakalCode) || "",
+      itemNum: (editingLine.ai && editingLine.ai.dakalCode) || "",
+      name: editingLine.desc || "",
+      desc: editingLine.desc || "",
+      price: (editingLine.ai && editingLine.ai.dakalHigh) || parseFloat(editingLine.basePrice) || 0
+    },
+    recipe: editingLineRecipe,
+    supplierItems: supplierItems,
+    onChange: setEditingLineRecipe,
+    onSave: saveLineRecipe,
+    onDelete: deleteLineRecipe,
+    onClose: closeLineEditor
+  }));
 }
 function getOptionsForQuestion(questionText) {
   if (questionText.includes("\u05D2\u05DC\u05D5\u05D9") || questionText.includes("\u05E1\u05DE\u05D5\u05D9")) return ["\u05D2\u05DC\u05D5\u05D9\u05D4", "\u05E1\u05DE\u05D5\u05D9\u05D4", "\u05EA\u05E2\u05DC\u05D4"];
