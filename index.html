@@ -1899,7 +1899,9 @@ function StandingOrdersManager({ cfSuppliers, onClose }) {
 
 
 // ---- Invoice Uploader — רכיב משותף להעלאת חשבונית ספק (Storage + AI) ----
-function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
+function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError, docType }) {
+  var dt = docType || "invoice";
+  var isQuote = dt === "price_quote";
   const [uploading, setUploading] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
   var ALLOWED = ["application/pdf", "image/jpeg", "image/png"];
@@ -2011,7 +2013,7 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
 
       // 6. callback — מעבירים מטאדאטה של הקובץ יחד עם הנתונים שזוהו (לשימוש בשלב 6)
       setScanning(false);
-      onScanReady({ ...parsed, fileUrl: fileUrl, fileName: file.name, fileType: file.type, storagePath: storagePath, detectedSupplier: knownSupplier });
+      onScanReady({ ...parsed, fileUrl: fileUrl, fileName: file.name, fileType: file.type, storagePath: storagePath, detectedSupplier: knownSupplier, docType: dt });
     } catch (err) {
       setUploading(false);
       setScanning(false);
@@ -2021,8 +2023,8 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError }) {
   };
 
   var busy = uploading || scanning;
-  var label = uploading ? "\u23F3 \u05DE\u05E2\u05DC\u05D4..." : scanning ? "\u23F3 \u05E1\u05D5\u05E8\u05E7..." : "\uD83D\uDCC4 \u05E2\u05DC\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA";
-  return /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", background: busy ? "#f3f4f6" : "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, cursor: busy ? "wait" : "pointer", fontSize: 13, color: "#1d4ed8", fontWeight: 600, opacity: busy ? 0.7 : 1 } },
+  var label = uploading ? "\u23F3 \u05DE\u05E2\u05DC\u05D4..." : scanning ? "\u23F3 \u05E1\u05D5\u05E8\u05E7..." : (isQuote ? "\uD83D\uDCCB \u05E2\u05DC\u05D4 \u05D4\u05E6\u05E2\u05EA \u05DE\u05D7\u05D9\u05E8" : "\uD83D\uDCC4 \u05E2\u05DC\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA");
+  return /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", background: busy ? "#f3f4f6" : (isQuote ? "#f5f3ff" : "#eff6ff"), border: "1px solid " + (isQuote ? "#ddd6fe" : "#bfdbfe"), borderRadius: 6, cursor: busy ? "wait" : "pointer", fontSize: 13, color: isQuote ? "#6d28d9" : "#1d4ed8", fontWeight: 600, opacity: busy ? 0.7 : 1 } },
     label,
     /* @__PURE__ */ React.createElement("input", { type: "file", accept: "application/pdf,image/jpeg,image/png", style: { display: "none" }, onChange: handleFile, disabled: busy })
   );
@@ -2116,7 +2118,8 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
 
   return /* @__PURE__ */ React.createElement("div", { style: { background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: 14, marginTop: 10 } },
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: 10 } },
-      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", fontSize: 13, flex: 1 } }, "\u2705 \u05D4-AI \u05D6\u05D9\u05D4\u05D4 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D5\u05D0\u05E9\u05E8"),
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", fontSize: 13, flex: 1 } }, (scan.docType === "price_quote" ? "\u2705 \u05D4-AI \u05D6\u05D9\u05D4\u05D4 \u05D4\u05E6\u05E2\u05EA \u05DE\u05D7\u05D9\u05E8 \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D5\u05D0\u05E9\u05E8" : "\u2705 \u05D4-AI \u05D6\u05D9\u05D4\u05D4 \u05D0\u05EA \u05D4\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D5\u05D0\u05E9\u05E8")),
+      scan.docType === "price_quote" ? /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: "#f3e8ff", color: "#6b21a8", borderRadius: 10, fontSize: 11, fontWeight: 600, marginRight: 8 } }, "\uD83D\uDCCB \u05D4\u05E6\u05E2\u05EA \u05DE\u05D7\u05D9\u05E8") : null,
       confBadge
     ),
     /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 4 } },
@@ -2130,7 +2133,7 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
       /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E2\"\u05DE \u20AA" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: editScan.vatAmount||"", onChange: function(e){ setEditScan({...editScan,vatAmount:parseFloat(e.target.value)||0}); } })),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D4\"\u05DB \u20AA" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: editScan.totalAmount||"", onChange: function(e){ setEditScan({...editScan,totalAmount:parseFloat(e.target.value)||0}); } }))
     ),
-    /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD \u05DC\u05E1\u05E4\u05E7", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement(Select, { value: payTerms, onChange: function(e){ setPayTerms(e.target.value); }, style: { maxWidth: 200 } },
+    scan.docType !== "price_quote" && /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD \u05DC\u05E1\u05E4\u05E7", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement(Select, { value: payTerms, onChange: function(e){ setPayTerms(e.target.value); }, style: { maxWidth: 200 } },
       PAYMENT_TERMS.map(function(t){ return /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label); })
     )),
     /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, marginBottom: 8 } },
@@ -2795,18 +2798,21 @@ function CashFlowPage() {
       }
     }
 
-    // 1. רשומת supplier_invoice חדשה (קישור ל-cashflow דרך transactionId)
+    var isQuote = scan.docType === "price_quote";
+
+    // 1. רשומת supplier_invoice חדשה (קישור ל-cashflow דרך transactionId — רק אם חשבונית)
     var supplierInvoice = {
       id: supplierInvoiceId,
-      transactionId: transactionId,
+      transactionId: isQuote ? null : transactionId,
+      docType: isQuote ? "price_quote" : "invoice",
       supplier: scan.supplier || "",
       supplierInvoiceNum: scan.invoiceNum || null,
       invoiceDate: scan.invoiceDate || null,
-      paymentDate: payDate,
+      paymentDate: isQuote ? null : payDate,
       totalAmount: scan.totalAmount || 0,
       vatAmount: (typeof scan.vatAmount === "number") ? scan.vatAmount : null,
       netAmount: (typeof scan.netAmount === "number") ? scan.netAmount : null,
-      paymentTerms: payTerms || scan.paymentTerms || "net30",
+      paymentTerms: isQuote ? null : (payTerms || scan.paymentTerms || "net30"),
       items: (scan.items || []).map(function(it){ var c = Object.assign({}, it); delete c._saveToCatalog; return c; }),
       notes: scan.notes || "",
       confidence: (typeof scan.confidence === "number") ? scan.confidence : null,
@@ -2814,34 +2820,34 @@ function CashFlowPage() {
       fileName: scan.fileName || null,
       fileType: scan.fileType || null,
       storagePath: scan.storagePath || null,
-      status: "pending",
+      status: isQuote ? "quote" : "pending",
       paidAt: null,
       source: "scan",
       createdAt: now
     };
 
-    // 2. רשומת cashflow (קישור ל-supplier_invoice דרך supplierInvoiceId)
-    var transaction = {
-      id: transactionId,
-      supplierInvoiceId: supplierInvoiceId,
-      cat: "supplier_invoice",
-      isIncome: false,
-      date: payDate,
-      invoiceDate: scan.invoiceDate,
-      desc: "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA " + (scan.supplier||"") + (scan.invoiceNum?" #"+scan.invoiceNum:""),
-      amount: scan.totalAmount||0,
-      supplier: scan.supplier,
-      paymentTerms: payTerms||scan.paymentTerms,
-      paidStatus: "pending",
-      createdAt: now,
-      source: "scan"
-    };
-
-    // 3. כתיבה לשתי הקולקציות (לא אטומי ברמת transactions, אבל מקובל בסכום הזה)
+    // 2. רשומת cashflow — רק אם חשבונית
     var allInvoices = await db.get("supplier_invoices") || [];
     await db.set("supplier_invoices", [...allInvoices, supplierInvoice]);
-    var allCashflow = await db.get("cashflow") || [];
-    await db.set("cashflow", [...allCashflow, transaction]);
+    if (!isQuote) {
+      var transaction = {
+        id: transactionId,
+        supplierInvoiceId: supplierInvoiceId,
+        cat: "supplier_invoice",
+        isIncome: false,
+        date: payDate,
+        invoiceDate: scan.invoiceDate,
+        desc: "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA " + (scan.supplier||"") + (scan.invoiceNum?" #"+scan.invoiceNum:""),
+        amount: scan.totalAmount||0,
+        supplier: scan.supplier,
+        paymentTerms: payTerms||scan.paymentTerms,
+        paidStatus: "pending",
+        createdAt: now,
+        source: "scan"
+      };
+      var allCashflow = await db.get("cashflow") || [];
+      await db.set("cashflow", [...allCashflow, transaction]);
+    }
 
     // 4. כתיבה ל-invoice_items — רשומה פר-פריט פר-חשבונית (D-1c: בסיס ל-D-2/D-3/D-4)
     if (scan.items && scan.items.length) {
@@ -2863,6 +2869,7 @@ function CashFlowPage() {
           category: null,
           savedToCatalog: it._saveToCatalog !== false,
           approved: true,
+          docType: isQuote ? "price_quote" : "invoice",
           createdAt: now
         };
       });
@@ -2884,17 +2891,18 @@ function CashFlowPage() {
         if (!ex) {
           ex = supp.find(function(s){ return (s.name || "").trim().toLowerCase() === normName; });
         }
-        var histEntry = { price: item.unitPrice, date: histDate, invoiceId: supplierInvoiceId };
+        var srcType = isQuote ? "price_quote" : "invoice";
+        var histEntry = { price: item.unitPrice, date: histDate, invoiceId: supplierInvoiceId, source: srcType };
         if (ex) {
-          // מיגרציה שקטה: history string ריק → array
           if (!Array.isArray(ex.history)) ex.history = [];
-          // הוספה ל-history רק אם המחיר השתנה (למנוע רעש)
           if (ex.price !== item.unitPrice) ex.history.push(histEntry);
           ex.price = item.unitPrice;
+          if (isQuote) ex.lastQuotePrice = item.unitPrice;
+          else ex.lastInvoicePrice = item.unitPrice;
           ex.lastUpdated = histDate;
           if (item.itemCode && !ex.itemCode) ex.itemCode = item.itemCode;
         } else {
-          supp.push({
+          var newItem = {
             id: genId(),
             cat: scan.supplier || "\u05DB\u05DC\u05DC\u05D9",
             itemCode: item.itemCode || null,
@@ -2904,7 +2912,10 @@ function CashFlowPage() {
             firstPrice: item.unitPrice,
             history: [histEntry],
             lastUpdated: histDate
-          });
+          };
+          if (isQuote) newItem.lastQuotePrice = item.unitPrice;
+          else newItem.lastInvoicePrice = item.unitPrice;
+          supp.push(newItem);
         }
       });
       await db.set("supplier_items", supp);
@@ -3143,9 +3154,12 @@ function CashFlowPage() {
     /* ====================== SUPPLIERS TAB ====================== */
     tab==="suppliers" && /* @__PURE__ */ React.createElement("div", null,
       /* @__PURE__ */ React.createElement(Card, {style:{marginBottom:12}},
-        /* @__PURE__ */ React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:supplierScan?12:0}},
-          /* @__PURE__ */ React.createElement("span",{style:{fontWeight:700,fontSize:13}},"\uD83D\uDCC4 \u05E2\u05DC\u05D4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05E1\u05E4\u05E7 (PDF/JPG/PNG)"),
-          /* @__PURE__ */ React.createElement(InvoiceUploader,{cfSuppliers:cfSuppliers,onScanReady:function(scan){setSupplierScan(scan);}})
+        /* @__PURE__ */ React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:supplierScan?12:0,gap:8,flexWrap:"wrap"}},
+          /* @__PURE__ */ React.createElement("span",{style:{fontWeight:700,fontSize:13}},"\u05D4\u05E2\u05DC\u05D4 \u05DE\u05E1\u05DE\u05DB\u05D9 \u05E1\u05E4\u05E7 (PDF/JPG/PNG)"),
+          /* @__PURE__ */ React.createElement("div",{style:{display:"flex",gap:8}},
+            /* @__PURE__ */ React.createElement(InvoiceUploader,{cfSuppliers:cfSuppliers,onScanReady:function(scan){setSupplierScan(scan);},docType:"invoice"}),
+            /* @__PURE__ */ React.createElement(InvoiceUploader,{cfSuppliers:cfSuppliers,onScanReady:function(scan){setSupplierScan(scan);},docType:"price_quote"})
+          )
         ),
         supplierScan&&/* @__PURE__ */ React.createElement(SupplierScanApproval,{scan:supplierScan,cfSuppliers:cfSuppliers,transactions:transactions,onApprove:approveSupplierScan,onCancel:function(){setSupplierScan(null);}})
       ),
@@ -3972,12 +3986,15 @@ function BOQMode(props) {
         return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
           || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
       });
+      var ps = c.priceSource || "auto";
+      var px = supp ? (ps === "invoice" ? (supp.lastInvoicePrice || supp.price || 0) : ps === "quote" ? (supp.lastQuotePrice || supp.price || 0) : (supp.price || 0)) : 0;
       return {
         code: (supp && supp.itemCode) || c.supplierItemKey || "",
         name: c.supplierItemName || (supp && supp.name) || "",
         unit: c.unit || (supp && supp.unit) || "",
         qtyPerUnit: c.quantity || 0,
-        price: supp ? (supp.price || 0) : 0,
+        price: px,
+        priceSource: ps,
         source: "supplier"
       };
     });
@@ -4937,7 +4954,7 @@ function PurchaseTracking() {
   React.useEffect(function() {
     (async function() {
       var data = await db.get("invoice_items") || [];
-      setItems(data);
+      setItems((data || []).filter(function(r){ return !r.docType || r.docType === "invoice"; }));
       setLoading(false);
     })();
   }, []);
@@ -5083,6 +5100,7 @@ function PurchaseTracking() {
             savedToCatalog: true,
             approved: true,
             backfilled: true,
+            docType: inv.docType || "invoice",
             createdAt: inv.createdAt || new Date().toISOString()
           });
         });
@@ -5231,7 +5249,7 @@ function AlertsPage() {
         db.get("invoice_items"),
         db.get("supplier_items")
       ]);
-      setInvoiceItems(Array.isArray(results[0]) ? results[0] : []);
+      setInvoiceItems(Array.isArray(results[0]) ? results[0].filter(function(r){ return !r.docType || r.docType === "invoice"; }) : []);
       setCatalog(Array.isArray(results[1]) ? results[1] : []);
       setLoading(false);
     })();
@@ -5548,13 +5566,20 @@ function AssemblyEditor(props) {
   })();
   var fmt = function(n){ return (Math.round((n||0)*100)/100).toLocaleString("he-IL"); };
 
+  var getCompPrice = function(supp, priceSource) {
+    if (!supp) return 0;
+    var ps = priceSource || "auto";
+    if (ps === "invoice") return supp.lastInvoicePrice || supp.price || 0;
+    if (ps === "quote") return supp.lastQuotePrice || supp.price || 0;
+    return supp.price || 0;
+  };
   var materialsCost = 0;
   (recipe.components || []).forEach(function(c) {
     var supp = sortedSupp.find(function(s){
       return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
         || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
     });
-    materialsCost += (c.quantity || 0) * (supp ? (supp.price || 0) : 0);
+    materialsCost += (c.quantity || 0) * getCompPrice(supp, c.priceSource);
   });
   var laborCost = (recipe.laborHours || 0) * (recipe.laborRate || 0);
   var totalCost = recipe.workScope === "labor_only" ? laborCost
@@ -5627,7 +5652,11 @@ function AssemblyEditor(props) {
                 return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
                   || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
               });
-              var pr = matched ? (matched.price || 0) : 0;
+              var pr = getCompPrice(matched, c.priceSource);
+              var hasInv = matched && matched.lastInvoicePrice > 0;
+              var hasQuote = matched && matched.lastQuotePrice > 0;
+              var bothSources = hasInv && hasQuote;
+              var srcLabel = (c.priceSource === "invoice") ? "\uD83D\uDCC4 \u05D7\u05E9' " : (c.priceSource === "quote") ? "\uD83D\uDCCB \u05D4\u05E6\u05E2\u05D4 " : "\u26A1 \u05D0\u05D5\u05D8\u05D5 ";
               var derivedSup = c.supplier || (matched && matched.cat) || "";
               var filteredItems = derivedSup
                 ? (sortedSupp || []).filter(function(s){ return (s.cat || "") === derivedSup; })
@@ -5670,7 +5699,19 @@ function AssemblyEditor(props) {
                 ),
                 /* @__PURE__ */ React.createElement(Input, { type: "number", value: c.quantity || 0, onChange: function(e){ setComp(i, { quantity: parseFloat(e.target.value) || 0 }); } }),
                 /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", textAlign: "center" } }, c.unit || "\u2014"),
-                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "#1e40af", textAlign: "left" } }, "\u20AA" + fmt((c.quantity || 0) * pr)),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, textAlign: "left" } },
+                  /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, color: "#1e40af" } }, "\u20AA" + fmt((c.quantity || 0) * pr)),
+                  bothSources ? /* @__PURE__ */ React.createElement("button", {
+                    type: "button",
+                    onClick: function(){
+                      var cur = c.priceSource || "auto";
+                      var next = cur === "auto" ? "invoice" : cur === "invoice" ? "quote" : "auto";
+                      setComp(i, { priceSource: next });
+                    },
+                    title: "\u05DC\u05D7\u05E5 \u05DC\u05D4\u05D7\u05DC\u05E4\u05EA \u05DE\u05E7\u05D5\u05E8 (\u05D0\u05D5\u05D8\u05D5/\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA/\u05D4\u05E6\u05E2\u05D4)",
+                    style: { fontSize: 9, padding: "1px 4px", background: "transparent", color: "#6b7280", border: "1px solid #d1d5db", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }
+                  }, srcLabel) : null
+                ),
                 /* @__PURE__ */ React.createElement("button", { type: "button", onClick: function(){ delComp(i); }, style: { background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: 14 } }, "\u2715")
               );
             })
