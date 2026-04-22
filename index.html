@@ -1468,87 +1468,410 @@ function ProjectsSection({ user }) {
   if (selected) return /* @__PURE__ */ React.createElement(ProjectDetail, { project: selected, onBack: () => setSelected(null), user });
   return /* @__PURE__ */ React.createElement(ProjectsList, { onSelect: setSelected, user });
 }
+function AttendanceEditModal({ record, projects, onSave, onDelete, onClose }) {
+  const [form, setForm] = React.useState(Object.assign({
+    type: "work", dayFraction: 1, clockIn: "", clockOut: "",
+    breakMin: 0, projectId: "", location: "", notes: ""
+  }, record));
+  const calcH = function(ci, co, brk) {
+    if (!ci || !co) return 0;
+    var a = ci.split(":").map(Number), b = co.split(":").map(Number);
+    return Math.max(0, b[0]*60 + b[1] - (a[0]*60 + a[1]) - (parseInt(brk) || 0)) / 60;
+  };
+  const isWork = (form.type || "work") === "work";
+  const isVac = form.type === "vacation";
+  const save = function() {
+    var u = Object.assign({}, form);
+    if (isWork) { u.hours = calcH(form.clockIn, form.clockOut, form.breakMin); }
+    else { u.hours = 0; u.clockIn = ""; u.clockOut = ""; u.breakMin = 0; }
+    if (!isVac) u.dayFraction = 1;
+    onSave(u);
+  };
+  return /* @__PURE__ */ React.createElement("div", {
+    onClick: onClose,
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
+  },
+    /* @__PURE__ */ React.createElement("div", {
+      onClick: function(e){ e.stopPropagation(); },
+      style: { background: "#fff", borderRadius: 10, maxWidth: 500, width: "100%", padding: 20, maxHeight: "90vh", overflow: "auto" }
+    },
+      /* @__PURE__ */ React.createElement("h3", { style: { marginBottom: 14 } }, "\u270F\uFE0F \u05E2\u05E8\u05D9\u05DB\u05EA \u05E8\u05E9\u05D5\u05DE\u05D4"),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA" },
+          /* @__PURE__ */ React.createElement(Input, { type: "date", value: form.date || "", onChange: function(e){ setForm(Object.assign({}, form, { date: e.target.value })); } })),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D5\u05D2" },
+          /* @__PURE__ */ React.createElement(Select, { value: form.type || "work", onChange: function(e){ setForm(Object.assign({}, form, { type: e.target.value })); } },
+            /* @__PURE__ */ React.createElement("option", { value: "work" }, "\u05E2\u05D1\u05D5\u05D3\u05D4"),
+            /* @__PURE__ */ React.createElement("option", { value: "vacation" }, "\u05D7\u05D5\u05E4\u05E9"),
+            /* @__PURE__ */ React.createElement("option", { value: "sick" }, "\u05DE\u05D7\u05DC\u05D4")))
+      ),
+      isVac && /* @__PURE__ */ React.createElement(Field, { label: "\u05D0\u05D5\u05E8\u05DA" },
+        /* @__PURE__ */ React.createElement(Select, { value: form.dayFraction || 1, onChange: function(e){ setForm(Object.assign({}, form, { dayFraction: parseFloat(e.target.value) })); } },
+          /* @__PURE__ */ React.createElement("option", { value: 1 }, "\u05D9\u05D5\u05DD \u05DE\u05DC\u05D0"),
+          /* @__PURE__ */ React.createElement("option", { value: 0.5 }, "\u05D7\u05E6\u05D9 \u05D9\u05D5\u05DD"))),
+      isWork && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05DB\u05E0\u05D9\u05E1\u05D4" },
+          /* @__PURE__ */ React.createElement(Input, { type: "time", value: form.clockIn || "", onChange: function(e){ setForm(Object.assign({}, form, { clockIn: e.target.value })); } })),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05D9\u05E6\u05D9\u05D0\u05D4" },
+          /* @__PURE__ */ React.createElement(Input, { type: "time", value: form.clockOut || "", onChange: function(e){ setForm(Object.assign({}, form, { clockOut: e.target.value })); } })),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E4\u05E1\u05E7\u05D4 (\u05D3\u05E7')" },
+          /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.breakMin || 0, onChange: function(e){ setForm(Object.assign({}, form, { breakMin: parseInt(e.target.value) || 0 })); } }))),
+      isWork && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8" },
+          /* @__PURE__ */ React.createElement(Select, { value: form.projectId || "", onChange: function(e){ setForm(Object.assign({}, form, { projectId: e.target.value })); } },
+            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05DC\u05DC\u05D0 \u2014"),
+            (projects || []).map(function(p){ return /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.name); }))),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05D9\u05E7\u05D5\u05DD" },
+          /* @__PURE__ */ React.createElement(Input, { value: form.location || "", onChange: function(e){ setForm(Object.assign({}, form, { location: e.target.value })); } }))),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" },
+        /* @__PURE__ */ React.createElement("textarea", { value: form.notes || "", onChange: function(e){ setForm(Object.assign({}, form, { notes: e.target.value })); }, style: { width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, fontFamily: "inherit", minHeight: 50 } })),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: 14 } },
+        /* @__PURE__ */ React.createElement("button", { onClick: onDelete, style: { padding: "8px 16px", background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\uD83D\uDDD1 \u05DE\u05D7\u05E7"),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
+          /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { padding: "8px 16px", background: "#fff", color: "#374151", border: "1px solid #d1d5db", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
+          /* @__PURE__ */ React.createElement("button", { onClick: save, style: { padding: "8px 20px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\u05E9\u05DE\u05D5\u05E8")))
+    )
+  );
+}
+
+function AttendanceReportModal({ users, records, projects, onClose }) {
+  const [sel, setSel] = React.useState({});
+  const monthStart = new Date().toISOString().slice(0, 8) + "01";
+  const today = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = React.useState(monthStart);
+  const [to, setTo] = React.useState(today);
+  const toggle = function(id){ setSel(Object.assign({}, sel, { [id]: !sel[id] })); };
+  const toggleAll = function(){
+    var allOn = (users || []).every(function(u){ return sel[u.id]; });
+    var next = {}; (users || []).forEach(function(u){ next[u.id] = !allOn; });
+    setSel(next);
+  };
+  const doPrint = function() {
+    var ids = (users || []).filter(function(u){ return sel[u.id]; }).map(function(u){ return u.id; });
+    if (!ids.length) { alert("\u05D1\u05D7\u05E8 \u05DC\u05E4\u05D7\u05D5\u05EA \u05E2\u05D5\u05D1\u05D3 \u05D0\u05D7\u05D3"); return; }
+    var sections = ids.map(function(uid) {
+      var u = users.find(function(x){ return x.id === uid; });
+      var recs = (records || []).filter(function(r){ return r.userId === uid && r.date >= from && r.date <= to; }).sort(function(a,b){ return a.date.localeCompare(b.date); });
+      var workRecs = recs.filter(function(r){ return (r.type || "work") === "work"; });
+      var totH = workRecs.reduce(function(s,r){ return s + (r.hours || 0); }, 0);
+      var workDays = Object.keys(workRecs.reduce(function(m,r){ m[r.date]=1; return m; }, {})).length;
+      var vacDays = recs.filter(function(r){ return r.type === "vacation"; }).reduce(function(s,r){ return s + (r.dayFraction || 1); }, 0);
+      var sickDays = recs.filter(function(r){ return r.type === "sick"; }).length;
+      var rows = recs.map(function(r) {
+        var t = r.type || "work";
+        var lbl = t === "vacation" ? "\u05D7\u05D5\u05E4\u05E9" + (r.dayFraction === 0.5 ? " (\u00BD)" : "") : t === "sick" ? "\u05DE\u05D7\u05DC\u05D4" : "\u05E2\u05D1\u05D5\u05D3\u05D4";
+        var proj = ((projects || []).find(function(p){ return p.id === r.projectId; }) || {}).name || "\u2014";
+        return "<tr><td>" + r.date + "</td><td>" + lbl + "</td><td>" + (r.clockIn || "\u2014") + "</td><td>" + (r.clockOut || "\u2014") + "</td><td>" + (r.breakMin || "\u2014") + "</td><td>" + (t === "work" ? (r.hours || 0).toFixed(2) : "\u2014") + "</td><td>" + proj + "</td><td>" + (r.location || "\u2014") + "</td><td>" + (r.notes || "\u2014") + "</td></tr>";
+      }).join("");
+      return '<h2 style="background:#1e40af;color:#fff;padding:8px 12px;margin:20px 0 0 0;font-size:16px">' + (u ? u.name : "?") + '</h2><div style="background:#f3f4f6;padding:8px 12px;font-size:12px;display:flex;gap:16px;flex-wrap:wrap"><span><b>\u05D9\u05DE\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4:</b> ' + workDays + '</span><span><b>\u05E9\u05E2\u05D5\u05EA:</b> ' + totH.toFixed(2) + '</span><span><b>\u05D9\u05DE\u05D9 \u05D7\u05D5\u05E4\u05E9:</b> ' + vacDays + '</span><span><b>\u05D9\u05DE\u05D9 \u05DE\u05D7\u05DC\u05D4:</b> ' + sickDays + '</span></div><table border="1" style="border-collapse:collapse;width:100%;font-size:11px;margin-bottom:10px"><thead><tr style="background:#e5e7eb"><th>\u05EA\u05D0\u05E8\u05D9\u05DA</th><th>\u05E1\u05D5\u05D2</th><th>\u05DB\u05E0\u05D9\u05E1\u05D4</th><th>\u05D9\u05E6\u05D9\u05D0\u05D4</th><th>\u05D4\u05E4\u05E1\u05E7\u05D4</th><th>\u05E9\u05E2\u05D5\u05EA</th><th>\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8</th><th>\u05DE\u05D9\u05E7\u05D5\u05DD</th><th>\u05D4\u05E2\u05E8\u05D5\u05EA</th></tr></thead><tbody>' + (rows || '<tr><td colspan="9" style="text-align:center;color:#999">\u05D0\u05D9\u05DF \u05E8\u05E9\u05D5\u05DE\u05D5\u05EA</td></tr>') + '</tbody></table>';
+    }).join("");
+    var w = window.open("", "_blank");
+    w.document.write('<html dir="rtl"><head><title>\u05D3\u05D5\u05D7 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA</title></head><body style="font-family:Arial;padding:20px;color:#111"><h1 style="font-size:22px;margin:0 0 4px 0">\uD83D\uDCCB \u05D3\u05D5\u05D7 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA</h1><div style="font-size:12px;color:#666;margin-bottom:20px">\u05EA\u05E7\u05D5\u05E4\u05D4: ' + from + ' \u05E2\u05D3 ' + to + '</div>' + sections + '</body></html>');
+    setTimeout(function(){ w.print(); }, 300);
+  };
+  return /* @__PURE__ */ React.createElement("div", {
+    onClick: onClose,
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
+  },
+    /* @__PURE__ */ React.createElement("div", {
+      onClick: function(e){ e.stopPropagation(); },
+      style: { background: "#fff", borderRadius: 10, maxWidth: 500, width: "100%", padding: 20, maxHeight: "90vh", overflow: "auto" }
+    },
+      /* @__PURE__ */ React.createElement("h3", { style: { marginBottom: 14 } }, "\uD83D\uDCC4 \u05D3\u05D5\u05D7 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA"),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05DE-" },
+          /* @__PURE__ */ React.createElement(Input, { type: "date", value: from, onChange: function(e){ setFrom(e.target.value); } })),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D3" },
+          /* @__PURE__ */ React.createElement(Input, { type: "date", value: to, onChange: function(e){ setTo(e.target.value); } }))),
+      /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 10, fontWeight: 600, fontSize: 13, display: "flex", justifyContent: "space-between" } },
+        /* @__PURE__ */ React.createElement("span", null, "\u05E2\u05D5\u05D1\u05D3\u05D9\u05DD:"),
+        /* @__PURE__ */ React.createElement("button", { onClick: toggleAll, style: { fontSize: 11, padding: "2px 8px", background: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" } }, "\u05D1\u05D7\u05E8/\u05D1\u05D8\u05DC \u05D4\u05DB\u05DC")),
+      /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 220, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 6, padding: 8, marginBottom: 14 } },
+        (users || []).map(function(u) {
+          return /* @__PURE__ */ React.createElement("label", { key: u.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer" } },
+            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!sel[u.id], onChange: function(){ toggle(u.id); } }),
+            /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, u.name)
+          );
+        })),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },
+        /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { padding: "8px 16px", background: "#fff", color: "#374151", border: "1px solid #d1d5db", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
+        /* @__PURE__ */ React.createElement("button", { onClick: doPrint, style: { padding: "8px 20px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } }, "\uD83D\uDCC4 \u05D4\u05D3\u05E4\u05E1 / PDF"))
+    )
+  );
+}
+
 function AttendancePage({ user }) {
+  const isAdmin = user.role === ROLES.ADMIN;
+  const todayStr = new Date().toISOString().slice(0, 10);
   const [records, setRecords] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [form, setForm] = useState({
-    date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
-    clockIn: "",
-    clockOut: "",
-    breakMin: 0,
-    projectId: "",
-    location: "",
-    notes: ""
-  });
+  const [users, setUsers] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [filterUser, setFilterUser] = useState(user.role === ROLES.WORKER || user.role === ROLES.LEADER ? user.id : "all");
-  const [users, setUsers] = useState([]);
+  const [filterUser, setFilterUser] = useState(isAdmin ? "all" : user.id);
+  const [editRec, setEditRec] = useState(null);
+  const [showReport, setShowReport] = useState(false);
+  const [form, setForm] = useState({
+    userId: "", date: todayStr, type: "work", dayFraction: 1,
+    clockIn: "", clockOut: "", breakMin: 0,
+    projectId: "", location: "", notes: ""
+  });
+  const [vacForm, setVacForm] = useState({
+    date: todayStr, type: "vacation", dayFraction: 1, notes: ""
+  });
+
   const load = async () => {
-    const [r, p, u] = await Promise.all([db.get("attendance") || [], db.get("projects") || [], db.get("users") || []]);
+    const [r, p, u] = await Promise.all([db.get("attendance"), db.get("projects"), db.get("users")]);
     setRecords(Array.isArray(r) ? r : []);
-    setProjects(p || []);
-    setUsers(u || []);
+    setProjects(Array.isArray(p) ? p : []);
+    setUsers(Array.isArray(u) ? u : []);
   };
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
+
   const calcHours = (ci, co, brk) => {
     if (!ci || !co) return 0;
     const [ih, im] = ci.split(":").map(Number);
     const [oh, om] = co.split(":").map(Number);
     return Math.max(0, oh * 60 + om - (ih * 60 + im) - (parseInt(brk) || 0)) / 60;
   };
-  const save = async () => {
-    if (!form.clockIn) {
-      alert("\u05D7\u05D5\u05D1\u05D4 \u05DC\u05D4\u05D6\u05D9\u05DF \u05E9\u05E2\u05EA \u05DB\u05E0\u05D9\u05E1\u05D4");
-      return;
-    }
+  const now = () => new Date().toTimeString().slice(0, 5);
+  const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
+
+  const mySessionsToday = records.filter(r => r.userId === user.id && r.date === todayStr && (r.type || "work") === "work");
+  const openSession = mySessionsToday.find(r => r.clockIn && !r.clockOut);
+
+  const clockInNow = async () => {
+    if (openSession) { alert("\u05D9\u05E9 \u05DB\u05D1\u05E8 \u05DB\u05E0\u05D9\u05E1\u05D4 \u05E4\u05EA\u05D5\u05D7\u05D4 \u2014 \u05E1\u05D9\u05D9\u05DD \u05D1\u05D9\u05E6\u05D9\u05D0\u05D4 \u05E7\u05D5\u05D3\u05DD"); return; }
     setSaving(true);
     const all = await db.get("attendance") || [];
     await db.set("attendance", [...all, {
+      id: genId(), userId: user.id, userName: user.name,
+      date: todayStr, type: "work",
+      clockIn: now(), clockOut: "",
+      breakMin: 0, hours: 0,
+      projectId: "", location: "", notes: "",
+      createdAt: new Date().toISOString()
+    }]);
+    flash(); setSaving(false); load();
+  };
+
+  const clockOutNow = async () => {
+    if (!openSession) { alert("\u05D0\u05D9\u05DF \u05DB\u05E0\u05D9\u05E1\u05D4 \u05E4\u05EA\u05D5\u05D7\u05D4 \u05DC\u05E1\u05D2\u05D5\u05E8"); return; }
+    setSaving(true);
+    const all = await db.get("attendance") || [];
+    const t = now();
+    await db.set("attendance", all.map(r => r.id === openSession.id ? Object.assign({}, r, { clockOut: t, hours: calcHours(r.clockIn, t, r.breakMin || 0) }) : r));
+    flash(); setSaving(false); load();
+  };
+
+  const saveVacSick = async () => {
+    if (!vacForm.date) { alert("\u05D1\u05D7\u05E8 \u05EA\u05D0\u05E8\u05D9\u05DA"); return; }
+    setSaving(true);
+    const all = await db.get("attendance") || [];
+    await db.set("attendance", [...all, {
+      id: genId(), userId: user.id, userName: user.name,
+      date: vacForm.date, type: vacForm.type,
+      dayFraction: vacForm.type === "vacation" ? vacForm.dayFraction : 1,
+      clockIn: "", clockOut: "", breakMin: 0, hours: 0,
+      projectId: "", location: "", notes: vacForm.notes || "",
+      createdAt: new Date().toISOString()
+    }]);
+    flash(); setVacForm({ date: todayStr, type: "vacation", dayFraction: 1, notes: "" });
+    setSaving(false); load();
+  };
+
+  const adminSave = async () => {
+    if (!form.userId) { alert("\u05D1\u05D7\u05E8 \u05E2\u05D5\u05D1\u05D3"); return; }
+    if (form.type === "work" && !form.clockIn) { alert("\u05D7\u05D5\u05D1\u05D4 \u05DC\u05D4\u05D6\u05D9\u05DF \u05E9\u05E2\u05EA \u05DB\u05E0\u05D9\u05E1\u05D4"); return; }
+    setSaving(true);
+    const target = users.find(u => u.id === form.userId);
+    const all = await db.get("attendance") || [];
+    await db.set("attendance", [...all, {
       id: genId(),
-      userId: user.id,
-      userName: user.name,
+      userId: form.userId,
+      userName: target ? target.name : "",
       date: form.date,
-      clockIn: form.clockIn,
-      clockOut: form.clockOut,
-      breakMin: parseInt(form.breakMin) || 0,
-      hours: calcHours(form.clockIn, form.clockOut, form.breakMin),
+      type: form.type,
+      clockIn: form.type === "work" ? form.clockIn : "",
+      clockOut: form.type === "work" ? form.clockOut : "",
+      breakMin: form.type === "work" ? (parseInt(form.breakMin) || 0) : 0,
+      hours: form.type === "work" ? calcHours(form.clockIn, form.clockOut, form.breakMin) : 0,
+      dayFraction: form.type === "vacation" ? form.dayFraction : 1,
       projectId: form.projectId,
       location: form.location,
       notes: form.notes,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      createdAt: new Date().toISOString()
     }]);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-    setForm((f) => ({ ...f, clockIn: "", clockOut: "", breakMin: 0, location: "", notes: "" }));
-    setSaving(false);
-    load();
+    flash();
+    setForm(Object.assign({}, form, { clockIn: "", clockOut: "", breakMin: 0, location: "", notes: "" }));
+    setSaving(false); load();
   };
-  const now = () => (/* @__PURE__ */ new Date()).toTimeString().slice(0, 5);
-  const filtered = records.filter((r) => filterUser === "all" || r.userId === filterUser).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt?.localeCompare(a.createdAt || "") || 0);
-  const monthHours = filtered.filter((r) => r.date.startsWith((/* @__PURE__ */ new Date()).toISOString().slice(0, 7))).reduce((s, r) => s + (r.hours || 0), 0);
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u23F1\uFE0F \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA"), saved && /* @__PURE__ */ React.createElement(Alert, { type: "success" }, "\u2705 \u05D3\u05D9\u05D5\u05D5\u05D7 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA \u05E0\u05E9\u05DE\u05E8!"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 } }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15, marginBottom: 12 } }, "\u{1F4DD} \u05D3\u05D9\u05D5\u05D5\u05D7 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA"), /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: form.date, onChange: (e) => setForm({ ...form, date: e.target.value }) })), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05DB\u05E0\u05D9\u05E1\u05D4 *" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement(Input, { type: "time", value: form.clockIn, onChange: (e) => setForm({ ...form, clockIn: e.target.value }) }), /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: () => setForm({ ...form, clockIn: now() }) }, "\u05E2\u05DB\u05E9\u05D9\u05D5"))), /* @__PURE__ */ React.createElement(Field, { label: "\u05D9\u05E6\u05D9\u05D0\u05D4" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement(Input, { type: "time", value: form.clockOut, onChange: (e) => setForm({ ...form, clockOut: e.target.value }) }), /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: () => setForm({ ...form, clockOut: now() }) }, "\u05E2\u05DB\u05E9\u05D9\u05D5")))), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E4\u05E1\u05E7\u05D4 (\u05D3\u05E7\u05D5\u05EA)" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.breakMin, onChange: (e) => setForm({ ...form, breakMin: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D4\u05F4\u05DB \u05E9\u05E2\u05D5\u05EA" }, /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 12px", background: "#f0fdf4", borderRadius: 6, fontWeight: 700, color: "#059669", fontSize: 15 } }, calcHours(form.clockIn, form.clockOut, form.breakMin).toFixed(2)))), /* @__PURE__ */ React.createElement(Field, { label: "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8" }, /* @__PURE__ */ React.createElement(Select, { value: form.projectId, onChange: (e) => setForm({ ...form, projectId: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05DC\u05DC\u05D0 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u2014"), projects.map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.name)))), /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05D9\u05E7\u05D5\u05DD" }, /* @__PURE__ */ React.createElement(Input, { value: form.location, onChange: (e) => setForm({ ...form, location: e.target.value }), placeholder: "\u05D0\u05EA\u05E8 \u05E2\u05D1\u05D5\u05D3\u05D4..." })), /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" }, /* @__PURE__ */ React.createElement(
-    "textarea",
-    {
-      value: form.notes,
-      onChange: (e) => setForm({ ...form, notes: e.target.value }),
-      style: { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 14, fontFamily: "inherit", resize: "vertical", minHeight: 56, boxSizing: "border-box" }
-    }
-  )), /* @__PURE__ */ React.createElement(Btn, { onClick: save, disabled: saving, size: "lg", style: { width: "100%", justifyContent: "center", marginTop: 4 } }, saving ? "\u05E9\u05D5\u05DE\u05E8..." : "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8 \u05D3\u05D9\u05D5\u05D5\u05D7")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } }, /* @__PURE__ */ React.createElement(Stat, { label: "\u05E9\u05E2\u05D5\u05EA \u05D4\u05D7\u05D5\u05D3\u05E9", value: monthHours.toFixed(1), color: "#2563eb", sub: "\u05E9\u05E2\u05D5\u05EA \u05E2\u05D1\u05D5\u05D3\u05D4" }), /* @__PURE__ */ React.createElement(Stat, { label: "\u05D9\u05DE\u05D9\u05DD \u05D4\u05D7\u05D5\u05D3\u05E9", value: new Set(filtered.filter((r) => r.date.startsWith((/* @__PURE__ */ new Date()).toISOString().slice(0, 7))).map((r) => r.date)).size, color: "#059669", sub: "\u05D9\u05DE\u05D9 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA" }), user.role === ROLES.ADMIN && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05E0\u05DF \u05DC\u05E4\u05D9 \u05E2\u05D5\u05D1\u05D3" }, /* @__PURE__ */ React.createElement(Select, { value: filterUser, onChange: (e) => setFilterUser(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05DB\u05DC \u05D4\u05E2\u05D5\u05D1\u05D3\u05D9\u05DD"), users.map((u2) => /* @__PURE__ */ React.createElement("option", { key: u2.id, value: u2.id }, u2.name))))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4CB} \u05D4\u05D9\u05E1\u05D8\u05D5\u05E8\u05D9\u05D9\u05EA \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA"), filtered.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05E8\u05E9\u05D5\u05DE\u05D5\u05EA") : /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb" } }, ["\u05EA\u05D0\u05E8\u05D9\u05DA", "\u05E2\u05D5\u05D1\u05D3", "\u05DB\u05E0\u05D9\u05E1\u05D4", "\u05D9\u05E6\u05D9\u05D0\u05D4", "\u05D4\u05E4\u05E1\u05E7\u05D4", "\u05E9\u05E2\u05D5\u05EA", "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8", "\u05DE\u05D9\u05E7\u05D5\u05DD", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 11, fontWeight: 600 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { borderBottom: "1px solid #f3f4f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontWeight: 600 } }, r.date), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px" } }, r.userName), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", color: "#059669", fontWeight: 600 } }, r.clockIn), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", color: "#dc2626", fontWeight: 600 } }, r.clockOut || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", color: "#6b7280" } }, r.breakMin ? r.breakMin + "\u2032" : "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontWeight: 700, color: "#2563eb" } }, (r.hours || 0).toFixed(2)), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontSize: 12 } }, projects.find((p) => p.id === r.projectId)?.name || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontSize: 12, color: "#6b7280" } }, r.location || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px" } }, (user.role === ROLES.ADMIN || r.userId === user.id) && /* @__PURE__ */ React.createElement(
-    "button",
-    {
-      onClick: async () => {
-        if (!confirm("\u05DC\u05DE\u05D7\u05D5\u05E7?")) return;
-        const all = await db.get("attendance") || [];
-        await db.set("attendance", all.filter((x) => x.id !== r.id));
-        load();
-      },
-      style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 12 }
-    },
-    "\u2715"
-  ))))))));
+
+  const saveEdit = async (upd) => {
+    const all = await db.get("attendance") || [];
+    await db.set("attendance", all.map(r => r.id === upd.id ? upd : r));
+    setEditRec(null); flash(); load();
+  };
+
+  const deleteRec = async (id) => {
+    if (!confirm("\u05DC\u05DE\u05D7\u05D5\u05E7?")) return;
+    const all = await db.get("attendance") || [];
+    await db.set("attendance", all.filter(r => r.id !== id));
+    setEditRec(null); load();
+  };
+
+  const filtered = records
+    .filter(r => filterUser === "all" || r.userId === filterUser)
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+  const thisMonth = todayStr.slice(0, 7);
+  const monthWork = filtered.filter(r => r.date.startsWith(thisMonth) && (r.type || "work") === "work");
+  const monthHours = monthWork.reduce((s, r) => s + (r.hours || 0), 0);
+  const monthVacation = filtered.filter(r => r.date.startsWith(thisMonth) && r.type === "vacation").reduce((s, r) => s + (r.dayFraction || 1), 0);
+  const monthSick = filtered.filter(r => r.date.startsWith(thisMonth) && r.type === "sick").length;
+
+  const typeBadge = (t, df) => {
+    if (!t || t === "work") return /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: "#eff6ff", color: "#1e40af", borderRadius: 10, fontSize: 10, fontWeight: 600 } }, "\u05E2\u05D1\u05D5\u05D3\u05D4");
+    const label = t === "vacation" ? ("\u05D7\u05D5\u05E4\u05E9" + (df === 0.5 ? " (\u00BD)" : "")) : "\u05DE\u05D7\u05DC\u05D4";
+    const bg = t === "vacation" ? "#fef3c7" : "#fee2e2";
+    const fg = t === "vacation" ? "#92400e" : "#991b1b";
+    return /* @__PURE__ */ React.createElement("span", {
+      style: { padding: "2px 8px", background: bg, color: fg, borderRadius: 10, fontSize: 10, fontWeight: 600 }
+    }, label);
+  };
+
+  return /* @__PURE__ */ React.createElement("div", null,
+    /* @__PURE__ */ React.createElement(SectionTitle, null, "\u23F1\uFE0F \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA"),
+    saved && /* @__PURE__ */ React.createElement(Alert, { type: "success" }, "\u2705 \u05E0\u05E9\u05DE\u05E8!"),
+
+    !isAdmin && /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 500, marginBottom: 16 } },
+      /* @__PURE__ */ React.createElement(Card, null,
+        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15, marginBottom: 12 } }, "\u23F1\uFE0F \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA \u05D4\u05D9\u05D5\u05DD"),
+        mySessionsToday.length === 0
+          ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#6b7280", marginBottom: 12, padding: "8px 0" } }, "\u05E2\u05D3\u05D9\u05D9\u05DF \u05D0\u05D9\u05DF \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA \u05D4\u05D9\u05D5\u05DD")
+          : /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12 } },
+              mySessionsToday.map(function(s) {
+                return /* @__PURE__ */ React.createElement("div", {
+                  key: s.id,
+                  style: { padding: "6px 10px", background: "#f9fafb", borderRadius: 6, fontSize: 13, marginBottom: 4 }
+                }, "\u2022 " + s.clockIn + " \u2192 " + (s.clockOut || "\u23F3 \u05E4\u05EA\u05D5\u05D7") + (s.hours ? " (" + s.hours.toFixed(2) + "\u05E9')" : ""));
+              })
+            ),
+        openSession
+          ? /* @__PURE__ */ React.createElement("button", {
+              onClick: clockOutNow, disabled: saving,
+              style: { width: "100%", padding: "14px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 16, fontWeight: 700, fontFamily: "inherit" }
+            }, "\uD83D\uDD34 \u05D9\u05E6\u05D9\u05D0\u05D4 \u05E2\u05DB\u05E9\u05D9\u05D5")
+          : /* @__PURE__ */ React.createElement("button", {
+              onClick: clockInNow, disabled: saving,
+              style: { width: "100%", padding: "14px", background: "#059669", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 16, fontWeight: 700, fontFamily: "inherit" }
+            }, "\uD83D\uDFE2 \u05DB\u05E0\u05D9\u05E1\u05D4 \u05E2\u05DB\u05E9\u05D9\u05D5")
+      )
+    ),
+
+    isAdmin && /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 14 } },
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "\uD83D\uDCDD \u05D3\u05D9\u05D5\u05D5\u05D7 \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA (\u05DE\u05E0\u05D4\u05DC)"),
+        /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: function() { setShowReport(true); } }, "\uD83D\uDCC4 \u05D3\u05D5\u05D7 PDF")),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D5\u05D1\u05D3" },
+          /* @__PURE__ */ React.createElement(Select, { value: form.userId, onChange: function(e) { setForm(Object.assign({}, form, { userId: e.target.value })); } },
+            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05D1\u05D7\u05E8 \u2014"),
+            users.map(function(u) { return /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name); }))),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA" },
+          /* @__PURE__ */ React.createElement(Input, { type: "date", value: form.date, onChange: function(e) { setForm(Object.assign({}, form, { date: e.target.value })); } })),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D5\u05D2" },
+          /* @__PURE__ */ React.createElement(Select, { value: form.type, onChange: function(e) { setForm(Object.assign({}, form, { type: e.target.value })); } },
+            /* @__PURE__ */ React.createElement("option", { value: "work" }, "\u05E2\u05D1\u05D5\u05D3\u05D4"),
+            /* @__PURE__ */ React.createElement("option", { value: "vacation" }, "\u05D7\u05D5\u05E4\u05E9"),
+            /* @__PURE__ */ React.createElement("option", { value: "sick" }, "\u05DE\u05D7\u05DC\u05D4"))),
+        form.type === "vacation"
+          ? /* @__PURE__ */ React.createElement(Field, { label: "\u05D0\u05D5\u05E8\u05DA" },
+              /* @__PURE__ */ React.createElement(Select, { value: form.dayFraction, onChange: function(e) { setForm(Object.assign({}, form, { dayFraction: parseFloat(e.target.value) })); } },
+                /* @__PURE__ */ React.createElement("option", { value: 1 }, "\u05D9\u05D5\u05DD \u05DE\u05DC\u05D0"),
+                /* @__PURE__ */ React.createElement("option", { value: 0.5 }, "\u05D7\u05E6\u05D9 \u05D9\u05D5\u05DD")))
+          : /* @__PURE__ */ React.createElement("div", null)),
+      form.type === "work" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginTop: 8 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05DB\u05E0\u05D9\u05E1\u05D4" },
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } },
+            /* @__PURE__ */ React.createElement(Input, { type: "time", value: form.clockIn, onChange: function(e) { setForm(Object.assign({}, form, { clockIn: e.target.value })); } }),
+            /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: function() { setForm(Object.assign({}, form, { clockIn: now() })); } }, "\u05E2\u05DB\u05E9\u05D9\u05D5"))),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05D9\u05E6\u05D9\u05D0\u05D4" },
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } },
+            /* @__PURE__ */ React.createElement(Input, { type: "time", value: form.clockOut, onChange: function(e) { setForm(Object.assign({}, form, { clockOut: e.target.value })); } }),
+            /* @__PURE__ */ React.createElement(Btn, { size: "sm", variant: "outline", onClick: function() { setForm(Object.assign({}, form, { clockOut: now() })); } }, "\u05E2\u05DB\u05E9\u05D9\u05D5"))),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E4\u05E1\u05E7\u05D4 (\u05D3\u05E7')" },
+          /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.breakMin, onChange: function(e) { setForm(Object.assign({}, form, { breakMin: e.target.value })); } })),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\"\u05DB \u05E9\u05E2\u05D5\u05EA" },
+          /* @__PURE__ */ React.createElement("div", { style: { padding: "8px 12px", background: "#f0fdf4", borderRadius: 6, fontWeight: 700, color: "#059669", fontSize: 15 } },
+            calcHours(form.clockIn, form.clockOut, form.breakMin).toFixed(2)))),
+      form.type === "work" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 } },
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8" },
+          /* @__PURE__ */ React.createElement(Select, { value: form.projectId, onChange: function(e) { setForm(Object.assign({}, form, { projectId: e.target.value })); } },
+            /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05DC\u05DC\u05D0 \u2014"),
+            projects.map(function(p) { return /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.name); }))),
+        /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05D9\u05E7\u05D5\u05DD" },
+          /* @__PURE__ */ React.createElement(Input, { value: form.location, onChange: function(e) { setForm(Object.assign({}, form, { location: e.target.value })); } }))),
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" },
+        /* @__PURE__ */ React.createElement("textarea", { value: form.notes, onChange: function(e) { setForm(Object.assign({}, form, { notes: e.target.value })); }, style: { width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 14, fontFamily: "inherit", minHeight: 50 } })),
+      /* @__PURE__ */ React.createElement(Btn, { onClick: adminSave, disabled: saving, size: "lg", style: { width: "100%", justifyContent: "center", marginTop: 8 } }, saving ? "\u05E9\u05D5\u05DE\u05E8..." : "\uD83D\uDCBE \u05E9\u05DE\u05D5\u05E8")),
+
+    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 14 } },
+      /* @__PURE__ */ React.createElement(Stat, { label: "\u05E9\u05E2\u05D5\u05EA \u05D4\u05D7\u05D5\u05D3\u05E9", value: monthHours.toFixed(1), color: "#2563eb" }),
+      /* @__PURE__ */ React.createElement(Stat, { label: "\u05D9\u05DE\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4", value: new Set(monthWork.map(function(r) { return r.date; })).size, color: "#059669" }),
+      /* @__PURE__ */ React.createElement(Stat, { label: "\u05D9\u05DE\u05D9 \u05D7\u05D5\u05E4\u05E9", value: monthVacation, color: "#d97706" }),
+      /* @__PURE__ */ React.createElement(Stat, { label: "\u05D9\u05DE\u05D9 \u05DE\u05D7\u05DC\u05D4", value: monthSick, color: "#dc2626" })),
+
+    isAdmin && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12, maxWidth: 300 } },
+      /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05E0\u05DF \u05DC\u05E4\u05D9 \u05E2\u05D5\u05D1\u05D3" },
+        /* @__PURE__ */ React.createElement(Select, { value: filterUser, onChange: function(e) { setFilterUser(e.target.value); } },
+          /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u05DB\u05DC \u05D4\u05E2\u05D5\u05D1\u05D3\u05D9\u05DD"),
+          users.map(function(u) { return /* @__PURE__ */ React.createElement("option", { key: u.id, value: u.id }, u.name); })))),
+
+    /* @__PURE__ */ React.createElement(Card, null,
+      /* @__PURE__ */ React.createElement(SectionTitle, null, "\uD83D\uDCCB \u05D4\u05D9\u05E1\u05D8\u05D5\u05E8\u05D9\u05D9\u05EA \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA"),
+      filtered.length === 0
+        ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05E8\u05E9\u05D5\u05DE\u05D5\u05EA")
+        : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } },
+            /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+              /* @__PURE__ */ React.createElement("thead", null,
+                /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb" } },
+                  ["\u05EA\u05D0\u05E8\u05D9\u05DA", "\u05E2\u05D5\u05D1\u05D3", "\u05E1\u05D5\u05D2", "\u05DB\u05E0\u05D9\u05E1\u05D4", "\u05D9\u05E6\u05D9\u05D0\u05D4", "\u05D4\u05E4\u05E1\u05E7\u05D4", "\u05E9\u05E2\u05D5\u05EA", "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8", "\u05DE\u05D9\u05E7\u05D5\u05DD", ""].map(function(h) {
+                    return /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 11, fontWeight: 600 } }, h);
+                  }))),
+              /* @__PURE__ */ React.createElement("tbody", null,
+                filtered.slice(0, 200).map(function(r) {
+                  var rType = r.type || "work";
+                  var isWork = rType === "work";
+                  return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { borderBottom: "1px solid #f3f4f6" } },
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontWeight: 600 } }, r.date),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px" } }, r.userName),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px" } }, typeBadge(rType, r.dayFraction)),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", color: "#059669", fontWeight: 600 } }, isWork ? (r.clockIn || "\u2014") : "\u2014"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", color: "#dc2626", fontWeight: 600 } }, isWork ? (r.clockOut || "\u23F3 \u05E4\u05EA\u05D5\u05D7") : "\u2014"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", color: "#6b7280" } }, isWork && r.breakMin ? r.breakMin + "\u2032" : "\u2014"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontWeight: 700, color: "#2563eb" } }, isWork ? (r.hours || 0).toFixed(2) : "\u2014"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontSize: 12 } }, (projects.find(function(p) { return p.id === r.projectId; }) || {}).name || "\u2014"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px", fontSize: 12, color: "#6b7280" } }, r.location || "\u2014"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "8px" } },
+                      isAdmin
+                        ? /* @__PURE__ */ React.createElement("span", null,
+                            /* @__PURE__ */ React.createElement("button", { onClick: function() { setEditRec(r); }, style: { border: "none", background: "none", cursor: "pointer", color: "#2563eb", fontSize: 14, marginLeft: 4 }, title: "\u05E2\u05E8\u05D5\u05DA" }, "\u270F\uFE0F"),
+                            /* @__PURE__ */ React.createElement("button", { onClick: function() { deleteRec(r.id); }, style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 12 }, title: "\u05DE\u05D7\u05E7" }, "\u2715"))
+                        : null));
+                }))))),
+
+    editRec && /* @__PURE__ */ React.createElement(AttendanceEditModal, {
+      record: editRec, projects: projects,
+      onSave: saveEdit,
+      onDelete: function() { deleteRec(editRec.id); },
+      onClose: function() { setEditRec(null); }
+    }),
+    showReport && /* @__PURE__ */ React.createElement(AttendanceReportModal, {
+      users: users, records: records, projects: projects,
+      onClose: function() { setShowReport(false); }
+    })
+  );
 }
 function ReportsPage({ setPage }) {
   const [projects, setProjects] = useState([]);
