@@ -5475,6 +5475,11 @@ function AssemblyEditor(props) {
   };
 
   var sortedSupp = (supplierItems || []).slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","he"); });
+  var uniqueSuppliers = (function(){
+    var s = new Set();
+    (supplierItems || []).forEach(function(it){ if (it && it.cat) s.add(it.cat); });
+    return Array.from(s).sort(function(a,b){ return a.localeCompare(b, "he"); });
+  })();
   var fmt = function(n){ return (Math.round((n||0)*100)/100).toLocaleString("he-IL"); };
 
   var materialsCost = 0;
@@ -5564,29 +5569,47 @@ function AssemblyEditor(props) {
         (recipe.components || []).length === 0
           ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", fontStyle: "italic", textAlign: "center", padding: 10 } }, "\u05D0\u05D9\u05DF \u05E8\u05DB\u05D9\u05D1\u05D9\u05DD. \u05DC\u05D7\u05E5 '+ \u05D4\u05D5\u05E1\u05E3 \u05E8\u05DB\u05D9\u05D1'")
           : (recipe.components || []).map(function(c, i) {
-              var supp = sortedSupp.find(function(s){
+              var matched = sortedSupp.find(function(s){
                 return (c.supplierItemKey && s.itemCode && s.itemCode === c.supplierItemKey)
                   || (c.supplierItemName && (s.name||"").trim().toLowerCase() === (c.supplierItemName||"").trim().toLowerCase());
               });
-              var pr = supp ? (supp.price || 0) : 0;
+              var pr = matched ? (matched.price || 0) : 0;
+              var derivedSup = c.supplier || (matched && matched.cat) || "";
+              var filteredItems = derivedSup
+                ? (sortedSupp || []).filter(function(s){ return (s.cat || "") === derivedSup; })
+                : sortedSupp;
               return /* @__PURE__ */ React.createElement("div", {
                 key: i,
-                style: { display: "grid", gridTemplateColumns: "1fr 80px 70px 80px 40px", gap: 8, alignItems: "center", marginBottom: 8, padding: "8px", background: "#fff", borderRadius: 6 }
+                style: { display: "grid", gridTemplateColumns: "110px 1fr 65px 45px 65px 30px", gap: 8, alignItems: "center", marginBottom: 8, padding: "8px", background: "#fff", borderRadius: 6 }
               },
                 /* @__PURE__ */ React.createElement(Select, {
+                  value: derivedSup,
+                  onChange: function(e) {
+                    var sup = e.target.value;
+                    setComp(i, { supplier: sup, supplierItemKey: "", supplierItemName: "", unit: "" });
+                  }
+                },
+                  /* @__PURE__ */ React.createElement("option", { value: "" }, "-- \u05E1\u05E4\u05E7 --"),
+                  uniqueSuppliers.map(function(sup){
+                    return /* @__PURE__ */ React.createElement("option", { key: sup, value: sup }, sup);
+                  })
+                ),
+                /* @__PURE__ */ React.createElement(Select, {
                   value: c.supplierItemKey || "",
+                  disabled: !derivedSup,
                   onChange: function(e) {
                     var key = e.target.value;
-                    var found = sortedSupp.find(function(s){ return (s.itemCode || s.name) === key; });
+                    var found = filteredItems.find(function(s){ return (s.itemCode || s.name) === key; });
                     setComp(i, {
+                      supplier: derivedSup,
                       supplierItemKey: found ? (found.itemCode || "") : "",
                       supplierItemName: found ? (found.name || "") : "",
                       unit: found ? (found.unit || c.unit || "") : c.unit
                     });
                   }
                 },
-                  /* @__PURE__ */ React.createElement("option", { value: "" }, "-- \u05D1\u05D7\u05E8 \u05E8\u05DB\u05D9\u05D1 --"),
-                  sortedSupp.map(function(s){
+                  /* @__PURE__ */ React.createElement("option", { value: "" }, derivedSup ? "-- \u05D1\u05D7\u05E8 \u05E8\u05DB\u05D9\u05D1 --" : "-- \u05D1\u05D7\u05E8 \u05E1\u05E4\u05E7 --"),
+                  filteredItems.map(function(s){
                     var key = s.itemCode || s.name;
                     return /* @__PURE__ */ React.createElement("option", { key: key, value: key }, (s.name || "") + (s.itemCode ? " [" + s.itemCode + "]" : ""));
                   })
