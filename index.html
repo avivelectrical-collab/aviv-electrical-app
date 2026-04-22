@@ -3901,10 +3901,15 @@ function BOQMode(props) {
       dakalCatalog: (line.ai && line.ai.dakalCode) ? "dakal_build" : "free_text",
       workScope: "labor_material",
       components: [],
-      laborWorkerId: "",
-      laborWorkerName: "",
       laborHours: 1,
-      laborRate: (bizSettings && bizSettings.workerHourSalaried) || 81,
+      laborRate: (function(){
+        var w = (bizSettings && bizSettings.workers) || [];
+        var nr = (bizSettings && bizSettings.workerHourNamt) || 0;
+        var rates = w.map(function(x){ return x.hourlyRate || 0; }).filter(function(r){ return r > 0; });
+        if (nr > 0) rates.push(nr);
+        if (!rates.length) return (bizSettings && bizSettings.workerHourSalaried) || 81;
+        return Math.round((rates.reduce(function(s,r){ return s+r; }, 0) / rates.length) * 100) / 100;
+      })(),
       notes: "",
       active: true
     });
@@ -5483,17 +5488,14 @@ function AssemblyEditor(props) {
     (supplierItems || []).forEach(function(it){ if (it && it.cat) s.add(it.cat); });
     return Array.from(s).sort(function(a,b){ return a.localeCompare(b, "he"); });
   })();
-  var workerOptions = (function(){
-    var opts = [];
-    ((bizSettings && bizSettings.workers) || []).forEach(function(w){
-      opts.push({ id: w.id, label: (w.name || "") + " (" + (w.role || "\u05E2\u05D5\u05D1\u05D3") + " \u20AA" + (w.hourlyRate || 0) + ")", rate: w.hourlyRate || 0, name: w.name || "" });
-    });
-    var namtRate = (bizSettings && bizSettings.workerHourNamt) || 75;
-    opts.push({ id: "namt", label: "\u05E2\u05D5\u05D1\u05D3 \u05E7\u05D1\u05DC\u05DF (\u05E0\u05DE\u05EA \u20AA" + namtRate + ")", rate: namtRate, name: "\u05E2\u05D5\u05D1\u05D3 \u05E7\u05D1\u05DC\u05DF" });
-    opts.push({ id: "custom", label: "\u05DE\u05D5\u05EA\u05D0\u05DD (\u05E2\u05E8\u05D5\u05DA \u05E8\u05D5\u05D4 \u05D9\u05D3\u05E0\u05D9\u05EA)", rate: 0, name: "\u05DE\u05D5\u05EA\u05D0\u05DD" });
-    return opts;
+  var teamAvg = (function(){
+    var workers = (bizSettings && bizSettings.workers) || [];
+    var namtRate = (bizSettings && bizSettings.workerHourNamt) || 0;
+    var rates = workers.map(function(w){ return w.hourlyRate || 0; }).filter(function(r){ return r > 0; });
+    if (namtRate > 0) rates.push(namtRate);
+    if (!rates.length) return (bizSettings && bizSettings.workerHourSalaried) || 81;
+    return Math.round((rates.reduce(function(s,r){ return s+r; }, 0) / rates.length) * 100) / 100;
   })();
-  var currentWorkerId = recipe.laborWorkerId && workerOptions.some(function(x){ return x.id === recipe.laborWorkerId; }) ? recipe.laborWorkerId : "custom";
   var fmt = function(n){ return (Math.round((n||0)*100)/100).toLocaleString("he-IL"); };
 
   var materialsCost = 0;
@@ -5551,27 +5553,15 @@ function AssemblyEditor(props) {
       ),
       recipe.workScope !== "material_only" && /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16, padding: 12, background: "#fef3c7", borderRadius: 8, border: "1px solid #fde68a" } },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 10 } }, "\u05E2\u05D1\u05D5\u05D3\u05D4"),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 100px 100px 1fr", gap: 10, alignItems: "end" } },
-          /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D5\u05D1\u05D3" },
-            /* @__PURE__ */ React.createElement(Select, {
-              value: currentWorkerId,
-              onChange: function(e){
-                var id = e.target.value;
-                var opt = workerOptions.find(function(x){ return x.id === id; });
-                var next = Object.assign({}, recipe, { laborWorkerId: id, laborWorkerName: opt ? opt.name : "" });
-                if (id !== "custom" && opt) next.laborRate = opt.rate;
-                onChange(next);
-              }
-            }, workerOptions.map(function(opt){
-              return /* @__PURE__ */ React.createElement("option", { key: opt.id, value: opt.id }, opt.label);
-            }))
-          ),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: "#78350f", marginBottom: 8 } }, "\u05DE\u05DE\u05D5\u05E6\u05E2 \u05E6\u05D5\u05D5\u05EA: \u20AA" + fmt(teamAvg) + "/\u05E9\u05E2\u05D4 (\u05E9\u05DB\u05D9\u05E8\u05D9\u05DD + \u05E0\u05DE\u05EA)"),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "100px 100px 1fr 80px", gap: 10, alignItems: "end" } },
           /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05E2\u05D5\u05EA" },
             /* @__PURE__ */ React.createElement(Input, { type: "number", value: recipe.laborHours || 0, onChange: function(e){ setField("laborHours", parseFloat(e.target.value) || 0); } })
           ),
-          /* @__PURE__ */ React.createElement(Field, { label: "\u20AA/\u05E9\u05E2\u05D4" },
+          /* @__PURE__ */ React.createElement(Field, { label: "\u20AA/\u05E9\u05E2\u05D4 (\u05DE\u05DE\u05D5\u05E6\u05E2)" },
             /* @__PURE__ */ React.createElement(Input, { type: "number", value: recipe.laborRate || 0, onChange: function(e){ setField("laborRate", parseFloat(e.target.value) || 0); } })
           ),
+          /* @__PURE__ */ React.createElement("button", { type: "button", onClick: function(){ setField("laborRate", teamAvg); }, style: { padding: "6px 10px", fontSize: 11, background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, marginBottom: 18 } }, "\u21BB \u05D4\u05D7\u05D6\u05E8 \u05DC\u05DE\u05DE\u05D5\u05E6\u05E2"),
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#92400e", paddingBottom: 18 } }, "\u20AA" + fmt(laborCost))
         )
       ),
@@ -5768,10 +5758,15 @@ function AssembliesPage() {
       dakalCatalog: it._catalog,
       workScope: "labor_material",
       components: [],
-      laborWorkerId: "",
-      laborWorkerName: "",
       laborHours: 1,
-      laborRate: (bizSettings && bizSettings.workerHourSalaried) || 81,
+      laborRate: (function(){
+        var w = (bizSettings && bizSettings.workers) || [];
+        var nr = (bizSettings && bizSettings.workerHourNamt) || 0;
+        var rates = w.map(function(x){ return x.hourlyRate || 0; }).filter(function(r){ return r > 0; });
+        if (nr > 0) rates.push(nr);
+        if (!rates.length) return (bizSettings && bizSettings.workerHourSalaried) || 81;
+        return Math.round((rates.reduce(function(s,r){ return s+r; }, 0) / rates.length) * 100) / 100;
+      })(),
       notes: "",
       active: true
     });
