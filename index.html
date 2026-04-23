@@ -2515,6 +2515,9 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
 // Payment terms utility
 var PAYMENT_TERMS = [
   { id: "cash",  label: "\u05DE\u05D6\u05D5\u05DE\u05DF",      days: 0 },
+  { id: "net5",  label: "\u05E9\u05D5\u05D8\u05E3+5",    days: 5 },
+  { id: "net10", label: "\u05E9\u05D5\u05D8\u05E3+10",   days: 10 },
+  { id: "net15", label: "\u05E9\u05D5\u05D8\u05E3+15",   days: 15 },
   { id: "net30", label: "\u05E9\u05D5\u05D8\u05E3+30",   days: 30 },
   { id: "net45", label: "\u05E9\u05D5\u05D8\u05E3+45",   days: 45 },
   { id: "net60", label: "\u05E9\u05D5\u05D8\u05E3+60",   days: 60 },
@@ -2928,7 +2931,7 @@ function CashFlowPage() {
       .map(function(inv) {
         var proj = projects.find(function(p){ return p.id === inv.projectId; }) || {};
         var terms = proj.paymentTerms || "net30";
-        var payDate = calcPaymentDate(inv.approvedAt || inv.createdAt || inv.endDate, terms);
+        var payDate = calcPaymentDate(inv.createdAt || inv.endDate, terms);
         var amt = inv.total || (inv.subtotal - (inv.retention||0) - (inv.totalDeductionsNow||0) + (inv.vat||0) + (inv.retentionRelease||0)) || inv.subtotal || 0;
         // Check if manually confirmed as paid
         var paidTx = transactions.find(function(t){ return t.linkedInvId === inv.id && t.paidConfirm; });
