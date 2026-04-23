@@ -2989,7 +2989,7 @@ function CashFlowPage() {
         if (so.startDate && monthKey < so.startDate) continue;
         if (so.endDate && monthKey > so.endDate) continue;
         // Check if this month's standing order is confirmed/overridden
-        var confirmed = transactions.find(function(t){ return t.standingOrderId === so.id && t.date && t.date.slice(0,7) === monthKey; });
+        var confirmed = transactions.find(function(t){ return t.standingOrderId === so.id && (t.soMonthKey === monthKey || (!t.soMonthKey && t.date && t.date.slice(0,7) === monthKey)); });
         result.push({
           id: "so_" + so.id + "_" + monthKey,
           type: "standing_order",
@@ -3010,7 +3010,7 @@ function CashFlowPage() {
   }, [standingOrders, transactions]);
 
   // ---- Manual + supplier transactions (already in DB) ----
-  var manualTx = transactions.filter(function(t){ return !t.paidConfirm && !t.linkedInvId; });
+  var manualTx = transactions.filter(function(t){ return !t.paidConfirm && !t.linkedInvId && !t.standingOrderId; });
 
   // ---- Combine all ----
   var allTx = React.useMemo(function() {
@@ -3190,6 +3190,9 @@ function CashFlowPage() {
     var allInvoices = await db.get("supplier_invoices") || [];
     await db.set("supplier_invoices", [...allInvoices, supplierInvoice]);
     if (!isQuote) {
+      var activeSo = (standingOrders || []).find(function(so){
+        return so.active && matchedSupplier && so.supplierId === matchedSupplier.id;
+      });
       var transaction = {
         id: transactionId,
         supplierInvoiceId: supplierInvoiceId,
@@ -3205,6 +3208,11 @@ function CashFlowPage() {
         createdAt: now,
         source: "scan"
       };
+      if (activeSo) {
+        transaction.standingOrderId = activeSo.id;
+        transaction.actualAmount = scan.totalAmount || 0;
+        transaction.soMonthKey = (scan.invoiceDate || now.slice(0,10)).slice(0,7);
+      }
       var allCashflow = await db.get("cashflow") || [];
       await db.set("cashflow", [...allCashflow, transaction]);
     }
