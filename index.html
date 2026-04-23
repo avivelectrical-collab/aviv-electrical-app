@@ -3005,7 +3005,7 @@ function CashFlowPage() {
   const [supplierInvoices, setSupplierInvoices] = React.useState([]);
   const [supplierScan, setSupplierScan] = React.useState(null);
   const [showManualForm, setShowManualForm] = React.useState(false);
-  const [manualForm, setManualForm] = React.useState({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false, projectId: "" });
+  const [manualForm, setManualForm] = React.useState({ date: new Date().toISOString().slice(0,10), cat: "other", desc: "", amount: "", isIncome: false, projectId: "" });
   const [settingsForm, setSettingsForm] = React.useState(null);
   const [showSupplierDir, setShowSupplierDir] = React.useState(false);
   const [showStandingOrders, setShowStandingOrders] = React.useState(false);
@@ -3217,7 +3217,7 @@ function CashFlowPage() {
 
   var saveManual = async function() {
     if (!manualForm.desc || !manualForm.amount) return;
-    var isIncome = manualForm.cat === "income" || manualForm.cat === "invoice";
+    var isIncome = !!manualForm.isIncome;
     var all = await db.get("cashflow") || [];
     var proj = projects.find(function(p){ return p.id === manualForm.projectId; });
     var projectName = proj ? proj.name : "";
@@ -3230,7 +3230,7 @@ function CashFlowPage() {
     } else {
       await db.set("cashflow", [...all, { ...manualForm, projectName, id: genId(), amount: parseFloat(manualForm.amount)||0, isIncome, paidStatus: "pending", createdAt: new Date().toISOString() }]);
     }
-    setManualForm({ date: new Date().toISOString().slice(0,10), cat: "expense", desc: "", amount: "", isIncome: false, projectId: "" });
+    setManualForm({ date: new Date().toISOString().slice(0,10), cat: "other", desc: "", amount: "", isIncome: false, projectId: "" });
     setEditingId(null);
     setShowManualForm(false);
     load();
@@ -3298,7 +3298,7 @@ function CashFlowPage() {
       var transaction = {
         id: transactionId,
         supplierInvoiceId: supplierInvoiceId,
-        cat: "supplier_invoice",
+        cat: (matchedSupplier && matchedSupplier.defaultCategory) || "other",
         isIncome: false,
         date: payDate,
         invoiceDate: scan.invoiceDate,
@@ -3405,6 +3405,15 @@ function CashFlowPage() {
   var tabStyle = function(id) { return {padding:"8px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,fontFamily:"inherit",fontWeight:tab===id?700:400,color:tab===id?"#2563eb":"#6b7280",borderBottom:tab===id?"2px solid #2563eb":"2px solid transparent",marginBottom:-2}; };
   var now = new Date().toISOString().slice(0,7);
   var currentM = monthlyData.months[now]||{openingBalance:parseFloat(settings.openingBalance)||0,incomeTotal:0,expenseTotal:0,closingBalance:parseFloat(settings.openingBalance)||0};
+  var catIds = new Set((categories || []).map(function(c){ return c.id; }));
+  var catsWithExpenses = (categories || []).filter(function(c){
+    return monthlyData.sortedMonths.some(function(m){
+      return (monthlyData.months[m].expenses || []).some(function(t){ return t.cat === c.id; });
+    });
+  });
+  var hasUncategorized = monthlyData.sortedMonths.some(function(m){
+    return (monthlyData.months[m].expenses || []).some(function(t){ return !catIds.has(t.cat); });
+  });
 
   // רקע שורה לפי סטטוס: ירוק=שולם, אדום=באיחור, בז'=הוראת קבע, צהוב=ממתין
   var rowBg = function(t) {
@@ -3511,20 +3520,22 @@ function CashFlowPage() {
             /* @__PURE__ */ React.createElement("tr", {style:{background:"#fff5f5"}},
               /* @__PURE__ */ React.createElement("td", {colSpan:monthlyData.sortedMonths.length+1,style:{padding:"5px 12px",fontWeight:700,fontSize:11,color:"#dc2626",letterSpacing:1}}, "\u2193 \u05D4\u05D5\u05E6\u05D0\u05D5\u05EA")
             ),
-            /* Expenses: supplier invoices */
-            /* @__PURE__ */ React.createElement("tr", {style:{borderBottom:"1px solid #f3f4f6"}},
-              /* @__PURE__ */ React.createElement("td", {style:{padding:"7px 12px 7px 22px",color:"#374151",position:"sticky",right:0,background:"#fff"}}, "\uD83D\uDCC4 \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05E1\u05E4\u05E7\u05D9\u05DD"),
-              monthlyData.sortedMonths.map(function(m){var t=(monthlyData.months[m].expenses||[]).filter(function(t){return t.cat==="supplier_invoice";}).reduce(function(s,t){return s+t.amount;},0);return /* @__PURE__ */ React.createElement("td",{key:m,style:{padding:"7px 12px",textAlign:"center",color:t>0?"#dc2626":"#9ca3af",fontWeight:t>0?600:400,borderRight:"1px solid #e5e7eb"}},t>0?"-\u20AA"+fmt(t):"—");})
-            ),
-            /* Expenses: salary */
-            /* @__PURE__ */ React.createElement("tr", {style:{borderBottom:"1px solid #f3f4f6"}},
-              /* @__PURE__ */ React.createElement("td", {style:{padding:"7px 12px 7px 22px",color:"#374151",position:"sticky",right:0,background:"#fff"}}, "\uD83D\uDC64 \u05E9\u05DB\u05E8 \u05D5\u05DB\u05D5\u05D7 \u05D0\u05D3\u05DD"),
-              monthlyData.sortedMonths.map(function(m){var t=(monthlyData.months[m].expenses||[]).filter(function(t){return t.cat==="salary";}).reduce(function(s,t){return s+t.amount;},0);return /* @__PURE__ */ React.createElement("td",{key:m,style:{padding:"7px 12px",textAlign:"center",color:t>0?"#dc2626":"#9ca3af",fontWeight:t>0?600:400,borderRight:"1px solid #e5e7eb"}},t>0?"-\u20AA"+fmt(t):"—");})
-            ),
-            /* Expenses: standing + other */
-            /* @__PURE__ */ React.createElement("tr", {style:{borderBottom:"1px solid #f3f4f6"}},
-              /* @__PURE__ */ React.createElement("td", {style:{padding:"7px 12px 7px 22px",color:"#374151",position:"sticky",right:0,background:"#fff"}}, "\uD83D\uDD01 \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2 \u05D5\u05D0\u05D7\u05E8"),
-              monthlyData.sortedMonths.map(function(m){var t=(monthlyData.months[m].expenses||[]).filter(function(t){return t.cat!=="supplier_invoice"&&t.cat!=="salary";}).reduce(function(s,t){return s+t.amount;},0);return /* @__PURE__ */ React.createElement("td",{key:m,style:{padding:"7px 12px",textAlign:"center",color:t>0?"#dc2626":"#9ca3af",fontWeight:t>0?600:400,borderRight:"1px solid #e5e7eb"}},t>0?"-\u20AA"+fmt(t):"—");})
+            /* Expenses: dynamic rows per category */
+            catsWithExpenses.map(function(cat){
+              return /* @__PURE__ */ React.createElement("tr", {key:"expcat_"+cat.id,style:{borderBottom:"1px solid #f3f4f6"}},
+                /* @__PURE__ */ React.createElement("td", {style:{padding:"7px 12px 7px 22px",color:"#374151",position:"sticky",right:0,background:"#fff"}}, cat.label),
+                monthlyData.sortedMonths.map(function(m){
+                  var t=(monthlyData.months[m].expenses||[]).filter(function(t){return t.cat===cat.id;}).reduce(function(s,t){return s+t.amount;},0);
+                  return /* @__PURE__ */ React.createElement("td",{key:m,style:{padding:"7px 12px",textAlign:"center",color:t>0?"#dc2626":"#9ca3af",fontWeight:t>0?600:400,borderRight:"1px solid #e5e7eb"}},t>0?"-\u20AA"+fmt(t):"—");
+                })
+              );
+            }),
+            hasUncategorized && /* @__PURE__ */ React.createElement("tr", {key:"expcat_uncat",style:{borderBottom:"1px solid #f3f4f6"}},
+              /* @__PURE__ */ React.createElement("td", {style:{padding:"7px 12px 7px 22px",color:"#6b7280",position:"sticky",right:0,background:"#fff"}}, "\u2753 \u05DC\u05DC\u05D0 \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4"),
+              monthlyData.sortedMonths.map(function(m){
+                var t=(monthlyData.months[m].expenses||[]).filter(function(t){return !catIds.has(t.cat);}).reduce(function(s,t){return s+t.amount;},0);
+                return /* @__PURE__ */ React.createElement("td",{key:m,style:{padding:"7px 12px",textAlign:"center",color:t>0?"#dc2626":"#9ca3af",fontWeight:t>0?600:400,borderRight:"1px solid #e5e7eb"}},t>0?"-\u20AA"+fmt(t):"—");
+              })
             ),
             /* Expenses total */
             /* @__PURE__ */ React.createElement("tr", {style:{background:"#fff5f5",borderBottom:"2px solid #fca5a5"}},
@@ -3700,11 +3711,12 @@ function CashFlowPage() {
         /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,fontSize:15,marginBottom:12}},editingId?"\u270F\uFE0F \u05E2\u05E8\u05D9\u05DB\u05EA \u05E9\u05D5\u05E8\u05D4":"\u05E9\u05D5\u05E8\u05D4 \u05D9\u05D3\u05E0\u05D9\u05EA"),
         /* @__PURE__ */ React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
           /* @__PURE__ */ React.createElement(Field,{label:"\u05EA\u05D0\u05E8\u05D9\u05DA"},/* @__PURE__ */ React.createElement(Input,{type:"date",value:manualForm.date,onChange:function(e){setManualForm({...manualForm,date:e.target.value});}})),
-          /* @__PURE__ */ React.createElement(Field,{label:"\u05E1\u05D5\u05D2"},/* @__PURE__ */ React.createElement(Select,{value:manualForm.cat,onChange:function(e){setManualForm({...manualForm,cat:e.target.value});}},
-            /* @__PURE__ */ React.createElement("option",{value:"income"},"\u2B06\uFE0F \u05D4\u05DB\u05E0\u05E1\u05D4"),
+          /* @__PURE__ */ React.createElement(Field,{label:"\u05D4\u05DB\u05E0\u05E1\u05D4/\u05D4\u05D5\u05E6\u05D0\u05D4"},/* @__PURE__ */ React.createElement(Select,{value:manualForm.isIncome?"income":"expense",onChange:function(e){setManualForm({...manualForm,isIncome:e.target.value==="income"});}},
             /* @__PURE__ */ React.createElement("option",{value:"expense"},"\u2B07\uFE0F \u05D4\u05D5\u05E6\u05D0\u05D4"),
-            /* @__PURE__ */ React.createElement("option",{value:"salary"},"\uD83D\uDC64 \u05E9\u05DB\u05E8"),
-            /* @__PURE__ */ React.createElement("option",{value:"other"},"\uD83D\uDCCB \u05D0\u05D7\u05E8")
+            /* @__PURE__ */ React.createElement("option",{value:"income"},"\u2B06\uFE0F \u05D4\u05DB\u05E0\u05E1\u05D4")
+          )),
+          /* @__PURE__ */ React.createElement(Field,{label:"\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4"},/* @__PURE__ */ React.createElement(Select,{value:manualForm.cat||"other",onChange:function(e){setManualForm({...manualForm,cat:e.target.value});}},
+            (categories&&categories.length?categories:SUPPLIER_CATEGORIES).map(function(c){return /* @__PURE__ */ React.createElement("option",{key:c.id,value:c.id},c.label);})
           )),
           /* @__PURE__ */ React.createElement(Field,{label:"\u05EA\u05D9\u05D0\u05D5\u05E8"},/* @__PURE__ */ React.createElement(Input,{value:manualForm.desc,onChange:function(e){setManualForm({...manualForm,desc:e.target.value});}})),
           /* @__PURE__ */ React.createElement(Field,{label:"\u05E1\u05DB\u05D5\u05DD \u20AA"},/* @__PURE__ */ React.createElement(Input,{type:"number",value:manualForm.amount,onChange:function(e){setManualForm({...manualForm,amount:e.target.value});}}))
