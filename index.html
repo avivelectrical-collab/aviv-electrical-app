@@ -2374,21 +2374,25 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError, docTyp
 function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCancel }) {
   const [payTerms, setPayTerms] = React.useState(scan.paymentTerms || "net30");
   const [editScan, setEditScan] = React.useState(function() {
+    // fuzzy match אוטומטי בפתיחה — מוצא supplierId מהרשימה הקבועה לפי השם שה-AI זיהה
+    var aiSupplier = (scan.supplier||"").trim().toLowerCase();
+    var initialMatch = aiSupplier ? (cfSuppliers||[]).find(function(sup){
+      var n = (sup.name||"").trim().toLowerCase();
+      return n && (n.indexOf(aiSupplier) >= 0 || aiSupplier.indexOf(n) >= 0);
+    }) : null;
     return Object.assign({}, scan, {
+      supplierId: initialMatch ? initialMatch.id : null,
+      supplier: initialMatch ? initialMatch.name : (scan.supplier || ""),
       items: (scan.items || []).map(function(it){ return Object.assign({ _saveToCatalog: true }, it); })
     });
   });
   var fmt = function(n){ return (Number(n)||0).toLocaleString("he-IL",{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
-  // התאמת ספק מהרשימה — fuzzy case-insensitive (contains דו-כיווני)
+  // התאמת ספק מהרשימה — lookup ישיר לפי supplierId שנבחר מה-dropdown
   var supplierMatch = React.useMemo(function(){
-    var s = (editScan.supplier||"").trim().toLowerCase();
-    if (!s || !(cfSuppliers||[]).length) return null;
-    return (cfSuppliers||[]).find(function(sup){
-      var n = (sup.name||"").trim().toLowerCase();
-      return n && (n.indexOf(s) >= 0 || s.indexOf(n) >= 0);
-    }) || null;
-  }, [editScan.supplier, cfSuppliers]);
+    if (!editScan.supplierId) return null;
+    return (cfSuppliers||[]).find(function(s){ return s.id === editScan.supplierId; }) || null;
+  }, [editScan.supplierId, cfSuppliers]);
 
   // זיהוי כפילויות: אותו ספק (case-insensitive) + סכום ±1₪ + תאריך ±3 ימים
   var duplicates = React.useMemo(function(){
@@ -2417,19 +2421,17 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
     confBadge = /* @__PURE__ */ React.createElement("span", { style: { padding: "2px 8px", background: cBg, color: cText, borderRadius: 10, fontSize: 11, fontWeight: 600, marginRight: 8 } }, cEmoji + " \u05D1\u05D9\u05D8\u05D7\u05D5\u05DF AI: " + cPct + "%");
   }
 
-  // match indicator ליד השדה
+  // match indicator ליד השדה — 2 מצבים: נבחר ספק / טרם נבחר
   var matchIndicator;
-  if (!editScan.supplier || !editScan.supplier.trim()) {
-    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#9ca3af" } }, "\u2014");
-  } else if (supplierMatch) {
-    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#059669", fontWeight: 600 } }, "\u2713 \u05D1\u05E8\u05E9\u05D9\u05DE\u05D4: " + supplierMatch.name);
+  if (supplierMatch) {
+    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#059669", fontWeight: 600 } }, "✓ ספק: " + supplierMatch.name);
   } else {
-    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#d97706", fontWeight: 600 } }, "\u26A0\uFE0F \u05DC\u05D0 \u05D1\u05E8\u05E9\u05D9\u05DE\u05D4 \u2014 \u05D4\u05D5\u05E1\u05E3 \u05D1\u05D8\u05D0\u05D1 \u05E1\u05E4\u05E7\u05D9\u05DD");
+    matchIndicator = /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#d97706", fontWeight: 600 } }, "⚠️ חובה לבחור ספק מהרשימה לפני שמירה");
   }
 
   // ולידציה + אישור
   var handleApprove = function(){
-    if (!editScan.supplier || !editScan.supplier.trim()) { alert("\u05E9\u05DD \u05E1\u05E4\u05E7 \u05D7\u05D5\u05D1\u05D4"); return; }
+    if (!editScan.supplierId) { alert("חובה לבחור ספק מהרשימה"); return; }
     if (!editScan.totalAmount || editScan.totalAmount <= 0) { alert("\u05E1\u05DB\u05D5\u05DD \u05D7\u05D9\u05D9\u05D1 \u05DC\u05D4\u05D9\u05D5\u05EA \u05D2\u05D3\u05D5\u05DC \u05DE-0"); return; }
     if (!editScan.invoiceDate) { alert("\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05D7\u05D5\u05D1\u05D4"); return; }
     if (duplicates.length > 0) {
@@ -2462,7 +2464,14 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
       confBadge
     ),
     /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 4 } },
-      /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05E4\u05E7" }, /* @__PURE__ */ React.createElement(Input, { value: editScan.supplier||"", onChange: function(e){ setEditScan({...editScan,supplier:e.target.value}); } })),
+      /* @__PURE__ */ React.createElement(Field, { label: "ספק" },
+        (cfSuppliers||[]).length === 0
+          ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#991b1b", padding: "6px 8px", background: "#fee2e2", borderRadius: 4 } }, "אין ספקים ברשימה — הוסף בטאב ספקים קודם")
+          : /* @__PURE__ */ React.createElement("select", { value: editScan.supplierId || "", onChange: function(e){ var id = e.target.value || null; var sup = id ? (cfSuppliers||[]).find(function(s){ return s.id === id; }) : null; setEditScan(Object.assign({}, editScan, { supplierId: id, supplier: sup ? sup.name : "" })); }, style: { width: "100%", padding: "7px 9px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, background: "white", fontFamily: "inherit" } },
+              /* @__PURE__ */ React.createElement("option", { value: "" }, "― בחר ספק ―"),
+              (cfSuppliers||[]).map(function(s){ return /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name); })
+            )
+      ),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E1' \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { value: editScan.invoiceNum||"", onChange: function(e){ setEditScan({...editScan,invoiceNum:e.target.value}); } })),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: editScan.invoiceDate||"", onChange: function(e){ setEditScan({...editScan,invoiceDate:e.target.value}); } }))
     ),
@@ -3310,7 +3319,9 @@ function CashFlowPage() {
   };
 
   var approveSupplierScan = async function(scan, payTerms) {
-    var matchedSupplier = (cfSuppliers || []).find(function(s){ return s.name && scan.supplier && (s.name === scan.supplier || (scan.supplier || "").includes(s.name) || s.name.includes(scan.supplier || "")); });
+    // lookup ישיר לפי supplierId שנבחר ב-dropdown; השם הקנוני נלקח מהרשימה ולא מה-AI
+    var matchedSupplier = scan.supplierId ? (cfSuppliers || []).find(function(s){ return s.id === scan.supplierId; }) : null;
+    var canonicalSupplierName = matchedSupplier ? matchedSupplier.name : (scan.supplier || "");
     var supplierPaymentDay = matchedSupplier ? matchedSupplier.paymentDay : 0;
     var payDate = calcPaymentDate(scan.invoiceDate||new Date().toISOString().slice(0,10), payTerms||scan.paymentTerms||"net30", supplierPaymentDay);
     var supplierInvoiceId = genId();
@@ -3340,7 +3351,8 @@ function CashFlowPage() {
       id: supplierInvoiceId,
       transactionId: isQuote ? null : transactionId,
       docType: isQuote ? "price_quote" : "invoice",
-      supplier: scan.supplier || "",
+      supplierId: matchedSupplier ? matchedSupplier.id : null,
+      supplier: canonicalSupplierName,
       supplierInvoiceNum: scan.invoiceNum || null,
       invoiceDate: scan.invoiceDate || null,
       paymentDate: isQuote ? null : payDate,
@@ -3375,9 +3387,10 @@ function CashFlowPage() {
         isIncome: false,
         date: payDate,
         invoiceDate: scan.invoiceDate,
-        desc: "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA " + (scan.supplier||"") + (scan.invoiceNum?" #"+scan.invoiceNum:""),
+        desc: "חשבונית " + canonicalSupplierName + (scan.invoiceNum?" #"+scan.invoiceNum:""),
         amount: scan.totalAmount||0,
-        supplier: scan.supplier,
+        supplierId: matchedSupplier ? matchedSupplier.id : null,
+        supplier: canonicalSupplierName,
         paymentTerms: payTerms||scan.paymentTerms,
         paidStatus: "pending",
         createdAt: now,
@@ -3400,7 +3413,8 @@ function CashFlowPage() {
           id: genId(),
           supplierInvoiceId: supplierInvoiceId,
           transactionId: transactionId,
-          supplier: scan.supplier || "",
+          supplierId: matchedSupplier ? matchedSupplier.id : null,
+          supplier: canonicalSupplierName,
           invoiceDate: scan.invoiceDate || null,
           itemCode: it.itemCode || null,
           name: it.name || "",
