@@ -2131,10 +2131,11 @@ function SOVarianceModal({ tx, averageAmount, onConfirm, onCancel }) {
   );
 }
 
-function StandingOrdersManager({ cfSuppliers, onClose }) {
+function StandingOrdersManager({ cfSuppliers, categories, onClose }) {
+  var cats = (categories && categories.length) ? categories : SUPPLIER_CATEGORIES;
   const [orders, setOrders] = React.useState([]);
   const [showForm, setShowForm] = React.useState(false);
-  const [form, setForm] = React.useState({ name: "", amount: "", cat: "expense", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true, supplierId: "" });
+  const [form, setForm] = React.useState({ name: "", amount: "", cat: "other", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true, supplierId: "" });
 
   const load = async () => setOrders(await db.get("cashflow_standing_orders") || []);
   React.useEffect(() => { load(); }, []);
@@ -2143,10 +2144,10 @@ function StandingOrdersManager({ cfSuppliers, onClose }) {
     if (!form.name || !form.amount) return;
     var all = await db.get("cashflow_standing_orders") || [];
     var idx = all.findIndex(function(x){ return x.id === form.id; });
-    var item = { ...form, amount: parseFloat(form.amount)||0, isIncome: form.cat === "income" };
+    var item = { ...form, amount: parseFloat(form.amount)||0 };
     if (idx >= 0) { all[idx] = item; } else { all = [...all, { ...item, id: genId() }]; }
     await db.set("cashflow_standing_orders", all);
-    setForm({ name: "", amount: "", cat: "expense", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true, supplierId: "" });
+    setForm({ name: "", amount: "", cat: "other", isIncome: false, dayOfMonth: 1, startDate: new Date().toISOString().slice(0,7), endDate: "", active: true, supplierId: "" });
     setShowForm(false);
     load();
   };
@@ -2169,7 +2170,7 @@ function StandingOrdersManager({ cfSuppliers, onClose }) {
       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
         /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "\uD83D\uDD01 \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2"),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } },
-          /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function(){ setForm({ name:"",amount:"",cat:"expense",isIncome:false,dayOfMonth:1,startDate:new Date().toISOString().slice(0,7),endDate:"",active:true,supplierId:"" }); setShowForm(true); } }, "+ \u05D4\u05D5\u05E1\u05E3 \u05D7\u05D3\u05E9\u05D4"),
+          /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: function(){ setForm({ name:"",amount:"",cat:"other",isIncome:false,dayOfMonth:1,startDate:new Date().toISOString().slice(0,7),endDate:"",active:true,supplierId:"" }); setShowForm(true); } }, "+ \u05D4\u05D5\u05E1\u05E3 \u05D7\u05D3\u05E9\u05D4"),
           /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" } }, "\u00D7")
         )
       ),
@@ -2180,11 +2181,12 @@ function StandingOrdersManager({ cfSuppliers, onClose }) {
           /* @__PURE__ */ React.createElement(Field, { label: "\u05D9\u05D5\u05DD \u05D1\u05D7\u05D5\u05D3\u05E9 (1-28)" }, /* @__PURE__ */ React.createElement(Input, { type: "number", min: 1, max: 28, value: form.dayOfMonth, onChange: function(e){ setForm({...form,dayOfMonth:parseInt(e.target.value)||1}); } }))
         ),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 } },
-          /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D5\u05D2" }, /* @__PURE__ */ React.createElement(Select, { value: form.cat, onChange: function(e){ setForm({...form,cat:e.target.value}); } },
+          /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05DB\u05E0\u05E1\u05D4/\u05D4\u05D5\u05E6\u05D0\u05D4" }, /* @__PURE__ */ React.createElement(Select, { value: form.isIncome ? "income" : "expense", onChange: function(e){ setForm({...form, isIncome: e.target.value === "income"}); } },
             /* @__PURE__ */ React.createElement("option", { value: "expense" }, "\u05D4\u05D5\u05E6\u05D0\u05D4"),
-            /* @__PURE__ */ React.createElement("option", { value: "salary" }, "\u05E9\u05DB\u05E8 \u05D5\u05DB\u05D5\u05D7 \u05D0\u05D3\u05DD"),
-            /* @__PURE__ */ React.createElement("option", { value: "income" }, "\u05D4\u05DB\u05E0\u05E1\u05D4"),
-            /* @__PURE__ */ React.createElement("option", { value: "other" }, "\u05D0\u05D7\u05E8")
+            /* @__PURE__ */ React.createElement("option", { value: "income" }, "\u05D4\u05DB\u05E0\u05E1\u05D4")
+          )),
+          /* @__PURE__ */ React.createElement(Field, { label: "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4" }, /* @__PURE__ */ React.createElement(Select, { value: form.cat || "other", onChange: function(e){ setForm({...form,cat:e.target.value}); } },
+            cats.map(function(c){ return /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.label); })
           )),
           /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D7\u05D9\u05DC\u05EA \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA" }, /* @__PURE__ */ React.createElement(Input, { type: "month", value: form.startDate, onChange: function(e){ setForm({...form,startDate:e.target.value}); } })),
           /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D9\u05D5\u05DD \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA (\u05E8\u05E9\u05D5\u05EA)" }, /* @__PURE__ */ React.createElement(Input, { type: "month", value: form.endDate||"", onChange: function(e){ setForm({...form,endDate:e.target.value}); }, placeholder: "\u05DC\u05DC\u05D0 \u05E1\u05D9\u05D5\u05DD" }))
@@ -2788,7 +2790,8 @@ function SupplierInvoicesModal({ supplier, supplierInvoices, projects, onClose }
 }
 
 // ======== SUPPLIER DIRECTORY ========
-function SupplierDirectory({ supplierInvoices, projects, onClose }) {
+function SupplierDirectory({ supplierInvoices, projects, categories, onClose }) {
+  var cats = (categories && categories.length) ? categories : SUPPLIER_CATEGORIES;
   const [suppliers, setSuppliers] = React.useState([]);
   const [showForm, setShowForm] = React.useState(false);
   const [form, setForm] = React.useState({ name: "", paymentTerms: "net30", paymentDay: 0, notes: "", defaultCategory: "other", customCategories: [], isStandingOrder: false, standingOrderType: null, averageAmount: null });
@@ -2839,7 +2842,7 @@ function SupplierDirectory({ supplierInvoices, projects, onClose }) {
             PAYMENT_DAYS.map(function(d){ return /* @__PURE__ */ React.createElement("option", { key: d.id, value: d.id }, d.label); })
           )),
           /* @__PURE__ */ React.createElement(Field, { label: "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 \u05D1\u05E8\u05D9\u05E8\u05EA \u05DE\u05D7\u05D3\u05DC" }, /* @__PURE__ */ React.createElement(Select, { value: form.defaultCategory || "other", onChange: function(e){ setForm({...form, defaultCategory: e.target.value}); } },
-            SUPPLIER_CATEGORIES.map(function(c){ return /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.label); })
+            cats.map(function(c){ return /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.label); })
           ))
         ),
         /* @__PURE__ */ React.createElement(Field, { label: "\u05D4\u05E2\u05E8\u05D5\u05EA" }, /* @__PURE__ */ React.createElement(Input, { value: form.notes||"", onChange: function(e){ setForm({...form, notes: e.target.value}); }, placeholder: "\u05D0\u05D5\u05E4\u05E6\u05D9\u05D5\u05E0\u05DC\u05D9..." })),
@@ -2903,6 +2906,95 @@ function SupplierDirectory({ supplierInvoices, projects, onClose }) {
 }
 
 
+function CategoryManagerModal({ categories, cfSuppliers, onClose }) {
+  const [list, setList] = React.useState([...(categories || [])]);
+  const [newLabel, setNewLabel] = React.useState("");
+  const [editingId, setEditingId] = React.useState(null);
+  const [editLabel, setEditLabel] = React.useState("");
+
+  const add = function() {
+    var l = newLabel.trim();
+    if (!l) return;
+    if (list.find(function(c){ return c.label === l; })) { alert("\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 \u05D1\u05E9\u05DD \u05D6\u05D4 \u05DB\u05D1\u05E8 \u05E7\u05D9\u05D9\u05DE\u05EA"); return; }
+    var baseId = l.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    if (!baseId) baseId = "cat_" + genId().slice(0, 6);
+    var id = baseId; var n = 1;
+    while (list.find(function(c){ return c.id === id; })) { id = baseId + "_" + n; n++; }
+    setList([...list, { id: id, label: l }]);
+    setNewLabel("");
+  };
+
+  const startEdit = function(c) { setEditingId(c.id); setEditLabel(c.label); };
+  const saveEdit = function() {
+    var l = editLabel.trim();
+    if (!l) { setEditingId(null); return; }
+    setList(list.map(function(c){ return c.id === editingId ? Object.assign({}, c, { label: l }) : c; }));
+    setEditingId(null); setEditLabel("");
+  };
+  const cancelEdit = function() { setEditingId(null); setEditLabel(""); };
+
+  const del = async function(id) {
+    var usedBySuppliers = (cfSuppliers || []).filter(function(s){ return s.defaultCategory === id; }).length;
+    var so = await db.get("cashflow_standing_orders") || [];
+    var usedBySO = (so || []).filter(function(o){ return o.cat === id; }).length;
+    var used = usedBySuppliers + usedBySO;
+    var msg = used > 0
+      ? "\u05D4\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 \u05D1\u05E9\u05D9\u05DE\u05D5\u05E9 \u05D1-" + usedBySuppliers + " \u05E1\u05E4\u05E7\u05D9\u05DD \u05D5-" + usedBySO + " \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2. \u05DC\u05DE\u05D7\u05D5\u05E7 \u05D1\u05DB\u05DC \u05D6\u05D0\u05EA?"
+      : "\u05DC\u05DE\u05D7\u05D5\u05E7 \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4?";
+    if (!window.confirm(msg)) return;
+    setList(list.filter(function(c){ return c.id !== id; }));
+  };
+
+  const saveAll = async function() {
+    await db.set("cashflow_categories", list);
+    onClose();
+  };
+
+  return /* @__PURE__ */ React.createElement("div", {
+    onClick: onClose,
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
+  },
+    /* @__PURE__ */ React.createElement("div", {
+      onClick: function(e){ e.stopPropagation(); },
+      style: { background: "#fff", borderRadius: 10, maxWidth: 500, width: "100%", padding: 20, maxHeight: "90vh", overflow: "auto" }
+    },
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 } },
+        /* @__PURE__ */ React.createElement("h3", null, "\uD83C\uDFF7 \u05E0\u05D9\u05D4\u05D5\u05DC \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D5\u05EA"),
+        /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" } }, "\u00D7")
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+        /* @__PURE__ */ React.createElement(Input, { value: newLabel, onChange: function(e){ setNewLabel(e.target.value); }, placeholder: "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 \u05D7\u05D3\u05E9\u05D4...", onKeyDown: function(e){ if (e.key === "Enter") add(); } }),
+        /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: add }, "\u2795 \u05D4\u05D5\u05E1\u05E3")
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 300, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 6, marginBottom: 14 } },
+        list.length === 0
+          ? /* @__PURE__ */ React.createElement("div", { style: { padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 } }, "\u05D0\u05D9\u05DF \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D5\u05EA")
+          : list.map(function(c) {
+              var isEditing = editingId === c.id;
+              return /* @__PURE__ */ React.createElement("div", { key: c.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: "1px solid #f3f4f6" } },
+                isEditing
+                  ? /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", gap: 6 } },
+                      /* @__PURE__ */ React.createElement(Input, { value: editLabel, onChange: function(e){ setEditLabel(e.target.value); }, onKeyDown: function(e){ if (e.key === "Enter") saveEdit(); if (e.key === "Escape") cancelEdit(); }, autoFocus: true }),
+                      /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, style: { border: "none", background: "none", cursor: "pointer", color: "#059669", fontSize: 16 } }, "\u2714"),
+                      /* @__PURE__ */ React.createElement("button", { onClick: cancelEdit, style: { border: "none", background: "none", cursor: "pointer", color: "#6b7280", fontSize: 16 } }, "\u2715")
+                    )
+                  : /* @__PURE__ */ React.createElement(React.Fragment, null,
+                      /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontSize: 13 } }, c.label),
+                      /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, color: "#9ca3af", fontFamily: "monospace" } }, c.id),
+                      /* @__PURE__ */ React.createElement("button", { onClick: function(){ startEdit(c); }, style: { border: "none", background: "none", cursor: "pointer", color: "#2563eb", fontSize: 14 } }, "\u270F\uFE0F"),
+                      /* @__PURE__ */ React.createElement("button", { onClick: function(){ del(c.id); }, style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 12 } }, "\uD83D\uDDD1")
+                    )
+              );
+            })
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },
+        /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: onClose }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
+        /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: saveAll }, "\uD83D\uDCBE \u05E9\u05DE\u05D5\u05E8")
+      )
+    )
+  );
+}
+
 function CashFlowPage() {
   const [transactions, setTransactions] = React.useState([]);
   const [settings, setSettings] = React.useState({ openingBalance: 0, openingDate: new Date().toISOString().slice(0,7), defaultPaymentTerms: "net30" });
@@ -2917,6 +3009,8 @@ function CashFlowPage() {
   const [settingsForm, setSettingsForm] = React.useState(null);
   const [showSupplierDir, setShowSupplierDir] = React.useState(false);
   const [showStandingOrders, setShowStandingOrders] = React.useState(false);
+  const [categories, setCategories] = React.useState([]);
+  const [showCategoryManager, setShowCategoryManager] = React.useState(false);
   const [tab, setTab] = React.useState("flow");
   const [dailyMonth, setDailyMonth] = React.useState(new Date().toISOString().slice(0,7));
   const [confirmTx, setConfirmTx] = React.useState(null); // {id, actualDate, actualAmount}
@@ -2927,7 +3021,7 @@ function CashFlowPage() {
   const load = React.useCallback(async () => {
     await migrateSuppliersV1();
     await updateOverdueStatus();
-    const [tx, cfg, invs, projs, supp, so, supplierInvs] = await Promise.all([
+    const [tx, cfg, invs, projs, supp, so, supplierInvs, cats] = await Promise.all([
       db.get("cashflow") || [],
       db.get("cashflow_settings") || {},
       db.get("invoices") || [],
@@ -2935,6 +3029,7 @@ function CashFlowPage() {
       db.get("cashflow_suppliers") || [],
       db.get("cashflow_standing_orders") || [],
       db.get("supplier_invoices") || [],
+      db.get("cashflow_categories") || [],
     ]);
     setTransactions(tx || []);
     setSettings({ openingBalance: 0, openingDate: new Date().toISOString().slice(0,7), defaultPaymentTerms: "net30", ...(cfg||{}) });
@@ -2943,6 +3038,13 @@ function CashFlowPage() {
     setCfSuppliers(supp || []);
     setStandingOrders(so || []);
     setSupplierInvoices(supplierInvs || []);
+    if (Array.isArray(cats) && cats.length) {
+      setCategories(cats);
+    } else {
+      var seed = SUPPLIER_CATEGORIES.slice();
+      await db.set("cashflow_categories", seed);
+      setCategories(seed);
+    }
   }, []);
 
   React.useEffect(() => { load(); }, []);
@@ -3344,6 +3446,7 @@ function CashFlowPage() {
       /* @__PURE__ */ React.createElement("div", { style:{display:"flex",gap:8,flexWrap:"wrap"} },
         /* @__PURE__ */ React.createElement(Btn, {size:"sm",variant:"outline",onClick:function(){setShowSupplierDir(true);}}, "\uD83C\uDFE2 \u05E1\u05E4\u05E7\u05D9\u05DD"),
         /* @__PURE__ */ React.createElement(Btn, {size:"sm",variant:"outline",onClick:function(){setShowStandingOrders(true);}}, "\uD83D\uDD01 \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2"),
+        /* @__PURE__ */ React.createElement(Btn, {size:"sm",variant:"outline",onClick:function(){setShowCategoryManager(true);}}, "\uD83C\uDFF7 \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D5\u05EA"),
         /* @__PURE__ */ React.createElement(Btn, {size:"sm",variant:"outline",onClick:function(){setSettingsForm({...settings});}}, "\u2699\uFE0F \u05D4\u05D2\u05D3\u05E8\u05D5\u05EA"),
         /* @__PURE__ */ React.createElement(Btn, {size:"sm",onClick:function(){setShowManualForm(true);}}, "+ \u05E9\u05D5\u05E8\u05D4 \u05D9\u05D3\u05E0\u05D9\u05EA")
       )
@@ -3635,10 +3738,11 @@ function CashFlowPage() {
     ),
 
     /* ====================== SUPPLIER DIRECTORY MODAL ====================== */
-    showSupplierDir && /* @__PURE__ */ React.createElement(SupplierDirectory, {supplierInvoices:supplierInvoices,projects:projects,onClose:function(){setShowSupplierDir(false);load();}}),
+    showSupplierDir && /* @__PURE__ */ React.createElement(SupplierDirectory, {supplierInvoices:supplierInvoices,projects:projects,categories:categories,onClose:function(){setShowSupplierDir(false);load();}}),
+    showCategoryManager && /* @__PURE__ */ React.createElement(CategoryManagerModal, {categories:categories,cfSuppliers:cfSuppliers,onClose:function(){setShowCategoryManager(false);load();}}),
 
     /* ====================== STANDING ORDERS MODAL ====================== */
-    showStandingOrders && /* @__PURE__ */ React.createElement(StandingOrdersManager, {cfSuppliers:cfSuppliers,onClose:function(){setShowStandingOrders(false);load();}})
+    showStandingOrders && /* @__PURE__ */ React.createElement(StandingOrdersManager, {cfSuppliers:cfSuppliers,categories:categories,onClose:function(){setShowStandingOrders(false);load();}})
   );
 }
 
