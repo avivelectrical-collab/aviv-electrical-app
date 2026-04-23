@@ -2956,17 +2956,37 @@ function CategoryManagerModal({ categories, cfSuppliers, onClose }) {
     var invs = await db.get("supplier_invoices") || [];
     var suppliers = await db.get("cashflow_suppliers") || [];
     var sos = await db.get("cashflow_standing_orders") || [];
-    var migratedTx = 0;
+    var norm = function(s){ return (s || "").trim().toLowerCase(); };
+    var matchSupplier = function(nameFromTx) {
+      var n = norm(nameFromTx);
+      if (!n) return null;
+      return suppliers.find(function(s){
+        var sn = norm(s.name);
+        return sn && (sn === n || n.indexOf(sn) >= 0 || sn.indexOf(n) >= 0);
+      });
+    };
+    var byCat = {};
+    var unmatched = [];
+    var fellToOther = [];
     var newTxs = txs.map(function(t) {
       if (t.cat === "supplier_invoice") {
         var inv = invs.find(function(i){ return i.id === t.supplierInvoiceId; });
-        var supplierName = inv ? inv.supplier : t.supplier;
-        var sup = supplierName && suppliers.find(function(s){ return s.name === supplierName; });
-        var newCat = (sup && sup.defaultCategory) || "other";
-        migratedTx++;
+        var supplierName = (inv && inv.supplier) || t.supplier || "";
+        var sup = matchSupplier(supplierName);
+        var newCat;
+        if (sup && sup.defaultCategory) {
+          newCat = sup.defaultCategory;
+        } else if (sup) {
+          newCat = "other";
+          fellToOther.push(supplierName + " (\u05D7\u05E1\u05E8 defaultCategory)");
+        } else {
+          newCat = "other";
+          unmatched.push(supplierName);
+        }
+        byCat[newCat] = (byCat[newCat] || 0) + 1;
         return Object.assign({}, t, { cat: newCat });
       }
-      if (t.cat === "salary") { migratedTx++; return Object.assign({}, t, { cat: "labor" }); }
+      if (t.cat === "salary") { byCat.labor = (byCat.labor || 0) + 1; return Object.assign({}, t, { cat: "labor" }); }
       return t;
     });
     await db.set("cashflow", newTxs);
@@ -2976,7 +2996,22 @@ function CategoryManagerModal({ categories, cfSuppliers, onClose }) {
       return so;
     });
     await db.set("cashflow_standing_orders", newSOs);
-    alert("\u2705 \u05D4\u05D5\u05E2\u05D1\u05E8\u05D5 " + migratedTx + " \u05D8\u05E8\u05E0\u05D6\u05E7\u05E6\u05D9\u05D5\u05EA + " + migratedSO + " \u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2");
+
+    var byCatStr = Object.keys(byCat).map(function(k){
+      var cat = list.find(function(c){ return c.id === k; });
+      return "  " + (cat ? cat.label : k) + ": " + byCat[k];
+    }).join("\n");
+    var msg = "\u2705 \u05D4\u05DE\u05D9\u05D2\u05E8\u05E6\u05D9\u05D4 \u05D4\u05E1\u05EA\u05D9\u05D9\u05DE\u05D4\n\n\u05D8\u05E8\u05E0\u05D6\u05E7\u05E6\u05D9\u05D5\u05EA \u05DC\u05E4\u05D9 \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4:\n" + byCatStr;
+    if (migratedSO > 0) msg += "\n\n\u05D4\u05D5\u05E8\u05D0\u05D5\u05EA \u05E7\u05D1\u05E2 \u05E9\u05DE\u05E9\u05DB\u05D5\u05E8\u05EA \u2192 \u05DB\u05D5\u05D7 \u05D0\u05D3\u05DD: " + migratedSO;
+    if (unmatched.length) {
+      var uniq = Array.from(new Set(unmatched)).slice(0, 10);
+      msg += "\n\n\u26A0\uFE0F " + unmatched.length + " \u05E1\u05E4\u05E7\u05D9\u05DD \u05DC\u05D0 \u05E0\u05DE\u05E6\u05D0\u05D5 \u05D1\u05E1\u05E4\u05E8\u05D9\u05D4 (\u05D4\u05DC\u05DB\u05D5 \u05DC-'\u05D0\u05D7\u05E8'):\n" + uniq.join(", ");
+    }
+    if (fellToOther.length) {
+      var uniq2 = Array.from(new Set(fellToOther)).slice(0, 10);
+      msg += "\n\n\u26A0\uFE0F " + fellToOther.length + " \u05E1\u05E4\u05E7\u05D9\u05DD \u05D1\u05DC\u05D9 \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4 (\u05D4\u05DC\u05DB\u05D5 \u05DC-'\u05D0\u05D7\u05E8') \u2014 \u05D4\u05D2\u05D3\u05E8 defaultCategory \u05E2\u05DC\u05D9\u05D4\u05DD \u05D1\u05E1\u05E4\u05E8\u05D9\u05D4 \u05D5\u05D4\u05E8\u05E5 \u05E9\u05D5\u05D1:\n" + uniq2.join("\n");
+    }
+    alert(msg);
     onClose();
   };
 
