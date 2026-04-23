@@ -1154,17 +1154,16 @@ function InvoicePreparation({ onSaved, editInvoice }) {
   useEffect(() => {
     if (!projectId) {
       setProject(null);
-      setRows([]);
-      setGenerated(false);
+      if (!editInvoice) { setRows([]); setGenerated(false); }
       return;
     }
     setProject(projects.find((p) => p.id === projectId) || null);
-    setRows([]);
-    setGenerated(false);
-    // Auto-populate startDate from last invoice
+    if (!editInvoice) { setRows([]); setGenerated(false); }
+    // Auto-populate startDate from last invoice (לא במצב עריכה)
+    if (editInvoice) return;
     (async function() {
       var allInv = await db.get("invoices") || [];
-      var projInvs = allInv.filter(function(i){ return i.projectId === projectId; });
+      var projInvs = allInv.filter(function(i){ return i.projectId === projectId && i.id !== (editInvoice && editInvoice.id); });
       if (projInvs.length > 0) {
         var lastInv = projInvs.sort(function(a,b){ return (b.endDate||"").localeCompare(a.endDate||""); })[0];
         if (lastInv.endDate) {
@@ -1176,12 +1175,12 @@ function InvoicePreparation({ onSaved, editInvoice }) {
         setStartDate("");
       }
     })();
-  }, [projectId, projects]);
+  }, [projectId, projects, editInvoice]);
   const buildSummary = async () => {
     if (!projectId || !startDate || !endDate || !project) return;
     setLoading(true);
     const allInvoices = await db.get("invoices") || [];
-    const prevInv = allInvoices.filter((i) => i.projectId === projectId);
+    const prevInv = allInvoices.filter((i) => i.projectId === projectId && i.id !== editId);
     setPrevInvoices(prevInv);
     const prevApprovedQty = {};
     prevInv.forEach((inv) => {
@@ -1320,12 +1319,16 @@ function InvoicePreparation({ onSaved, editInvoice }) {
       ? allInvoices.map(function(i){ return i.id === editId ? invObj : i; })
       : [...allInvoices, invObj]
     );
-    // Update totalDeducted on expenses
+    // Update totalDeducted on expenses (בעריכה: מחסיר ניכוי ישן, מוסיף חדש)
     var allExpenses = await db.get("expenses") || [];
+    var oldDeductions = (editInvoice && editInvoice.deductions) || [];
     var updatedExp = allExpenses.map(function(e) {
-      var dr = deductionRows.find(function(d){ return d.expenseId === e.id; });
-      if (!dr || !(parseFloat(dr.deductNow) > 0)) return e;
-      return Object.assign({}, e, { totalDeducted: (e.totalDeducted||0) + (parseFloat(dr.deductNow)||0) });
+      var oldDr = oldDeductions.find(function(d){ return d.expenseId === e.id; });
+      var newDr = deductionRows.find(function(d){ return d.expenseId === e.id; });
+      var oldAmt = oldDr ? (parseFloat(oldDr.deductNow)||0) : 0;
+      var newAmt = newDr ? (parseFloat(newDr.deductNow)||0) : 0;
+      if (oldAmt === 0 && newAmt === 0) return e;
+      return Object.assign({}, e, { totalDeducted: Math.max(0, (e.totalDeducted||0) - oldAmt + newAmt) });
     });
     await db.set("expenses", updatedExp);
     setSaved(true);
