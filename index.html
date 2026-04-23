@@ -2311,7 +2311,12 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError, docTyp
         console.error("[Claude] raw response (no JSON found):", txt);
         throw new Error("Claude \u05DC\u05D0 \u05D4\u05D7\u05D6\u05D9\u05E8 JSON. \u05EA\u05D2\u05D5\u05D1\u05D4 \u05D1\u05E7\u05D5\u05E0\u05E1\u05D5\u05DC (F12).");
       }
-      var jsonStr = cleaned.substring(firstBrace, lastBrace + 1);
+      // תיקון גרשיים עבריים לא-escape-ים בתוך מחרוזות JSON (בע"מ, חב"ר, צה"ל וכו')
+      // " שנמצא בין שתי אותיות עבריות (0590-05FF) חייב להיות \" ב-JSON תקין
+      var escapeHebrewInnerQuotes = function(s) {
+        return s.replace(/([֐-׿])"(?=[֐-׿])/g, '$1\\"');
+      };
+      var jsonStr = escapeHebrewInnerQuotes(cleaned.substring(firstBrace, lastBrace + 1));
 
       var parsed;
       try {
@@ -2324,7 +2329,7 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError, docTyp
           var lastCompleteItem = cleaned.lastIndexOf("},");
           if (itemsStart >= 0 && lastCompleteItem > itemsStart) {
             try {
-              salvaged = JSON.parse(cleaned.substring(0, lastCompleteItem + 1) + "]}");
+              salvaged = JSON.parse(escapeHebrewInnerQuotes(cleaned.substring(0, lastCompleteItem + 1) + "]}"));
               console.warn("[Claude] \u05E9\u05D9\u05E7\u05D5\u05DD \u2014 \u05D7\u05D5\u05DC\u05E6\u05D5", (salvaged.items || []).length, "\u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05D7\u05DC\u05E7\u05D9\u05D9\u05DD (\u05D4\u05EA\u05D2\u05D5\u05D1\u05D4 \u05E0\u05D7\u05EA\u05DB\u05D4 \u05D1-max_tokens)");
             } catch (e2) { /* fall through */ }
           }
