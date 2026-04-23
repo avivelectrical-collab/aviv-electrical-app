@@ -2370,8 +2370,64 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError, docTyp
 }
 
 
+// ---- Quick Add Supplier Modal — הוספת ספק חדש במהירות ממסך אישור חשבונית ----
+function QuickAddSupplierModal({ initialName, onAdded, onCancel }) {
+  const [name, setName] = React.useState(initialName || "");
+  const [payTerms, setPayTerms] = React.useState("net30");
+  const [saving, setSaving] = React.useState(false);
+
+  var save = async function() {
+    if (!name.trim()) { alert("שם ספק חובה"); return; }
+    setSaving(true);
+    try {
+      var newSupplier = {
+        id: genId(),
+        name: name.trim(),
+        paymentTerms: payTerms,
+        paymentDay: 0,
+        defaultCategory: "other",
+        isStandingOrder: false,
+        createdAt: new Date().toISOString()
+      };
+      var all = await db.get("cashflow_suppliers") || [];
+      await db.set("cashflow_suppliers", [...all, newSupplier]);
+      onAdded(newSupplier);
+    } catch (err) {
+      alert("שגיאה בשמירה: " + err.message);
+      setSaving(false);
+    }
+  };
+
+  return /* @__PURE__ */ React.createElement("div",
+    { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" } },
+    /* @__PURE__ */ React.createElement("div",
+      { style: { background: "white", borderRadius: 8, padding: 20, width: 380, boxShadow: "0 20px 25px rgba(0,0,0,0.15)" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginBottom: 14, color: "#065f46" } }, "➕ הוספת ספק חדש"),
+      /* @__PURE__ */ React.createElement(Field, { label: "שם ספק" },
+        /* @__PURE__ */ React.createElement(Input, { value: name, onChange: function(e){ setName(e.target.value); }, autoFocus: true })
+      ),
+      /* @__PURE__ */ React.createElement(Field, { label: "תנאי תשלום" },
+        /* @__PURE__ */ React.createElement("select",
+          { value: payTerms, onChange: function(e){ setPayTerms(e.target.value); }, style: { width: "100%", padding: "7px 9px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, background: "white", fontFamily: "inherit" } },
+          /* @__PURE__ */ React.createElement("option", { value: "cash" }, "מזומן"),
+          /* @__PURE__ */ React.createElement("option", { value: "net30" }, "שוטף + 30"),
+          /* @__PURE__ */ React.createElement("option", { value: "net45" }, "שוטף + 45"),
+          /* @__PURE__ */ React.createElement("option", { value: "net60" }, "שוטף + 60"),
+          /* @__PURE__ */ React.createElement("option", { value: "net90" }, "שוטף + 90")
+        )
+      ),
+      /* @__PURE__ */ React.createElement("div",
+        { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 } },
+        /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: onCancel, disabled: saving }, "ביטול"),
+        /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: save, disabled: saving }, saving ? "שומר..." : "💾 שמור")
+      )
+    )
+  );
+}
+
+
 // ---- Supplier Scan Approval Component ----
-function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCancel }) {
+function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCancel, onSupplierAdded }) {
   const [payTerms, setPayTerms] = React.useState(scan.paymentTerms || "net30");
   const [editScan, setEditScan] = React.useState(function() {
     // fuzzy match אוטומטי בפתיחה — מוצא supplierId מהרשימה הקבועה לפי השם שה-AI זיהה
@@ -2386,6 +2442,7 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
       items: (scan.items || []).map(function(it){ return Object.assign({ _saveToCatalog: true }, it); })
     });
   });
+  const [showAddSupplier, setShowAddSupplier] = React.useState(false);
   var fmt = function(n){ return (Number(n)||0).toLocaleString("he-IL",{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
   // התאמת ספק מהרשימה — lookup ישיר לפי supplierId שנבחר מה-dropdown
@@ -2465,12 +2522,15 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
     ),
     /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 4 } },
       /* @__PURE__ */ React.createElement(Field, { label: "ספק" },
-        (cfSuppliers||[]).length === 0
-          ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#991b1b", padding: "6px 8px", background: "#fee2e2", borderRadius: 4 } }, "אין ספקים ברשימה — הוסף בטאב ספקים קודם")
-          : /* @__PURE__ */ React.createElement("select", { value: editScan.supplierId || "", onChange: function(e){ var id = e.target.value || null; var sup = id ? (cfSuppliers||[]).find(function(s){ return s.id === id; }) : null; setEditScan(Object.assign({}, editScan, { supplierId: id, supplier: sup ? sup.name : "" })); }, style: { width: "100%", padding: "7px 9px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, background: "white", fontFamily: "inherit" } },
-              /* @__PURE__ */ React.createElement("option", { value: "" }, "― בחר ספק ―"),
-              (cfSuppliers||[]).map(function(s){ return /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name); })
-            )
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } },
+          (cfSuppliers||[]).length === 0
+            ? /* @__PURE__ */ React.createElement("div", { style: { flex: 1, padding: "6px 8px", background: "#fef3c7", borderRadius: 4, fontSize: 12, color: "#92400e" } }, "הרשימה ריקה — הוסף ספק ראשון ←")
+            : /* @__PURE__ */ React.createElement("select", { value: editScan.supplierId || "", onChange: function(e){ var id = e.target.value || null; var sup = id ? (cfSuppliers||[]).find(function(s){ return s.id === id; }) : null; setEditScan(Object.assign({}, editScan, { supplierId: id, supplier: sup ? sup.name : "" })); }, style: { flex: 1, padding: "7px 9px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, background: "white", fontFamily: "inherit" } },
+                /* @__PURE__ */ React.createElement("option", { value: "" }, "― בחר ספק ―"),
+                (cfSuppliers||[]).map(function(s){ return /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name); })
+              ),
+          /* @__PURE__ */ React.createElement("button", { type: "button", onClick: function(){ setShowAddSupplier(true); }, title: "הוסף ספק חדש לרשימה", style: { padding: "6px 10px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, cursor: "pointer", color: "#059669", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" } }, "➕ חדש")
+        )
       ),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05E1' \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { value: editScan.invoiceNum||"", onChange: function(e){ setEditScan({...editScan,invoiceNum:e.target.value}); } })),
       /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: editScan.invoiceDate||"", onChange: function(e){ setEditScan({...editScan,invoiceDate:e.target.value}); } }))
@@ -2525,7 +2585,16 @@ function SupplierScanApproval({ scan, cfSuppliers, transactions, onApprove, onCa
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
       /* @__PURE__ */ React.createElement(Btn, { variant: "outline", size: "sm", onClick: onCancel }, "\u05D1\u05D9\u05D8\u05D5\u05DC"),
       /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: handleApprove }, "\u2705 \u05D0\u05E9\u05E8 \u05D5\u05E9\u05DE\u05D5\u05E8")
-    )
+    ),
+    showAddSupplier && /* @__PURE__ */ React.createElement(QuickAddSupplierModal, {
+      initialName: scan.supplier || "",
+      onCancel: function(){ setShowAddSupplier(false); },
+      onAdded: function(newSupp){
+        if (onSupplierAdded) onSupplierAdded(newSupp);
+        setEditScan(Object.assign({}, editScan, { supplierId: newSupp.id, supplier: newSupp.name }));
+        setShowAddSupplier(false);
+      }
+    })
   );
 }
 // Payment terms utility
@@ -3730,7 +3799,7 @@ function CashFlowPage() {
             /* @__PURE__ */ React.createElement(InvoiceUploader,{cfSuppliers:cfSuppliers,onScanReady:function(scan){setSupplierScan(scan);},docType:"price_quote"})
           )
         ),
-        supplierScan&&/* @__PURE__ */ React.createElement(SupplierScanApproval,{scan:supplierScan,cfSuppliers:cfSuppliers,transactions:transactions,onApprove:approveSupplierScan,onCancel:function(){setSupplierScan(null);}})
+        supplierScan&&/* @__PURE__ */ React.createElement(SupplierScanApproval,{scan:supplierScan,cfSuppliers:cfSuppliers,transactions:transactions,onApprove:approveSupplierScan,onCancel:function(){setSupplierScan(null);},onSupplierAdded:function(s){ setCfSuppliers([...cfSuppliers, s]); }})
       ),
       /* @__PURE__ */ React.createElement(Card, null,
         /* @__PURE__ */ React.createElement("div",{style:{fontWeight:700,marginBottom:8}},"\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05D5\u05EA \u05E1\u05E4\u05E7\u05D9\u05DD"),
