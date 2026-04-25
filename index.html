@@ -2370,6 +2370,16 @@ function InvoiceUploader({ supplierId, cfSuppliers, onScanReady, onError, docTyp
 }
 
 
+// נורמליזציית שם ספק — להשוואת כפילויות (מסיר בע"מ/בעמ, רווחים, פיסוק)
+function normalizeSupplierName(s) {
+  if (!s) return "";
+  return String(s)
+    .replace(/בע"מ|בעמ|בע״מ|ב\.ע\.מ/gi, "")
+    .replace(/["׳״'\-_.,()\\\/]/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
 // ---- Quick Add Supplier Modal — הוספת ספק חדש במהירות ממסך אישור חשבונית ----
 function QuickAddSupplierModal({ initialName, onAdded, onCancel }) {
   const [name, setName] = React.useState(initialName || "");
@@ -2378,18 +2388,28 @@ function QuickAddSupplierModal({ initialName, onAdded, onCancel }) {
 
   var save = async function() {
     if (!name.trim()) { alert("שם ספק חובה"); return; }
+    var trimmedName = name.trim();
+
+    // בדיקת כפילות: אם normalize זהה לספק קיים — לאשר עם המשתמש לפני יצירה
+    var all = await db.get("cashflow_suppliers") || [];
+    var normNew = normalizeSupplierName(trimmedName);
+    var dupe = normNew && all.find(function(s){ return normalizeSupplierName(s["name"]) === normNew; });
+    if (dupe) {
+      var go = confirm('כבר קיים ספק דומה: "' + dupe["name"] + '".\nהאם בכל זאת ליצור ספק חדש?');
+      if (!go) return;
+    }
+
     setSaving(true);
     try {
       var newSupplier = {
         id: genId(),
-        name: name.trim(),
+        name: trimmedName,
         paymentTerms: payTerms,
         paymentDay: 0,
         defaultCategory: "other",
         isStandingOrder: false,
         createdAt: new Date().toISOString()
       };
-      var all = await db.get("cashflow_suppliers") || [];
       await db.set("cashflow_suppliers", [...all, newSupplier]);
       onAdded(newSupplier);
     } catch (err) {
