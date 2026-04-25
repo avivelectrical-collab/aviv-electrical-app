@@ -4324,6 +4324,7 @@ function ClarificationCard(props) {
 function PricingPage() {
   const [tab, setTab] = useState("boq");
   const [supplierItems, setSupplier] = useState([]);
+  const [cfSuppliers, setCfSuppliers] = useState([]);
   const [dakalB, setDakalB] = useState([]);
   const [dakalM, setDakalM] = useState([]);
   const [seeded, setSeeded] = useState(false);
@@ -4349,6 +4350,8 @@ function PricingPage() {
         await db.set("dakal_maint", m);
       }
       setDakalM(m);
+      var cfs = await db.get("cashflow_suppliers") || [];
+      setCfSuppliers(cfs);
       setSeeded(true);
     })();
   }, []);
@@ -4383,7 +4386,7 @@ function PricingPage() {
     return /* @__PURE__ */ React.createElement("button", { key: tv[0], style: tStyle(tv[0]), onClick: function() {
       setTab(tv[0]);
     } }, tv[1]);
-  })), tab === "boq" ? /* @__PURE__ */ React.createElement(BOQMode, { C, supplierItems, dakalB, dakalM, lines: sharedLines, setLines: setSharedLines, loadedQuote: loadedQuote, onQuoteLoaded: function(){ setLoadedQuote(null); } }) : null, tab === "site" ? /* @__PURE__ */ React.createElement(SiteMode, { C, supplierItems, dakalB, dakalM, lines: sharedLines, setLines: setSharedLines }) : null, tab === "supplier" ? /* @__PURE__ */ React.createElement(SupplierPriceList, { items: supplierItems, onUpdate: async function(u) {
+  })), tab === "boq" ? /* @__PURE__ */ React.createElement(BOQMode, { C, supplierItems, dakalB, dakalM, lines: sharedLines, setLines: setSharedLines, loadedQuote: loadedQuote, onQuoteLoaded: function(){ setLoadedQuote(null); } }) : null, tab === "site" ? /* @__PURE__ */ React.createElement(SiteMode, { C, supplierItems, dakalB, dakalM, lines: sharedLines, setLines: setSharedLines }) : null, tab === "supplier" ? /* @__PURE__ */ React.createElement(SupplierPriceList, { items: supplierItems, suppliersDirectory: cfSuppliers, onUpdate: async function(u) {
     await db.set("supplier_items", u);
     setSupplier(u);
   } }) : null, tab === "dakal" ? /* @__PURE__ */ React.createElement(DakalCatalog, { build: dakalB, maint: dakalM, onAddToQuote: function(line) {
@@ -6782,8 +6785,90 @@ function CatalogModal(props) {
     );
   }))))));
 }
+function SupplierItemsModal(props) {
+  var supplier = props.supplier;
+  var items = props.items;
+  var onClose = props.onClose;
+
+  // פריטים השייכים לספק זה
+  var supplierItems = items["filter"](function(it) { return it["supplierId"] === supplier["id"]; });
+
+  // קיבוץ לפי category וספירה
+  var categoryCount = {};
+  supplierItems.forEach(function(it) {
+    var cat = it["category"] || "(ללא קטגוריה)";
+    categoryCount[cat] = (categoryCount[cat] || 0) + 1;
+  });
+
+  // קטגוריות מסודרות לפי כמות (יורד); הגדולה ביותר = ברירת מחדל
+  var categoryList = Object.keys(categoryCount).sort(function(a, b) {
+    return categoryCount[b] - categoryCount[a];
+  });
+  var defaultCat = categoryList[0] || null;
+
+  const [activeCat, setActiveCat] = useState(defaultCat);
+
+  // פריטים בקטגוריה הפעילה
+  var visibleItems = activeCat
+    ? supplierItems["filter"](function(it) { return (it["category"] || "(ללא קטגוריה)") === activeCat; })
+    : [];
+
+  var fmt = function(n) { return (Number(n)||0).toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var cols = ["קוד", "שם", "יח'", "מחיר"];
+
+  return /* @__PURE__ */ React.createElement("div", {
+    onClick: onClose,
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }
+  },
+    /* @__PURE__ */ React.createElement("div", {
+      onClick: function(e) { e.stopPropagation(); },
+      style: { background: "#fff", borderRadius: 12, width: "100%", maxWidth: 900, maxHeight: "85vh", overflowY: "auto", padding: 24, boxShadow: "0 20px 25px rgba(0,0,0,0.15)" }
+    },
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid #e5e7eb" } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "#111" } }, supplier["name"]),
+        /* @__PURE__ */ React.createElement("button", {
+          onClick: onClose,
+          style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#6b7280", padding: 0, lineHeight: 1 }
+        }, "×")
+      ),
+      categoryList.length > 0 ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4, borderBottom: "1px solid #e5e7eb", marginBottom: 12, overflowX: "auto" } },
+        categoryList["map"](function(cat) {
+          var isActive = cat === activeCat;
+          return /* @__PURE__ */ React.createElement("button", {
+            key: cat,
+            onClick: function() { setActiveCat(cat); },
+            style: { padding: "8px 14px", border: "none", borderBottom: isActive ? "2px solid #2563eb" : "2px solid transparent", background: "none", cursor: "pointer", fontWeight: isActive ? 600 : 400, fontSize: 13, fontFamily: "inherit", color: isActive ? "#2563eb" : "#6b7280", whiteSpace: "nowrap" }
+          }, cat + " (" + categoryCount[cat] + ")");
+        })
+      ) : null,
+      visibleItems.length === 0
+        ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#9ca3af", padding: 40, fontSize: 14 } }, "אין פריטים בקטגוריה זו")
+        : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } },
+            /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+              /* @__PURE__ */ React.createElement("thead", null,
+                /* @__PURE__ */ React.createElement("tr", { style: { background: "#f8fafc", borderBottom: "1px solid #e5e7eb" } },
+                  cols["map"](function(h) {
+                    return /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "8px 10px", textAlign: "right", color: "#6b7280", fontWeight: 600 } }, h);
+                  })
+                )
+              ),
+              /* @__PURE__ */ React.createElement("tbody", null,
+                visibleItems["map"](function(item) {
+                  return /* @__PURE__ */ React.createElement("tr", { key: item["id"], style: { borderBottom: "0.5px solid #f3f4f6" } },
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 10px", fontFamily: "monospace", fontSize: 11, color: "#2563eb" } }, item["itemCode"] || item["id"]),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 10px", maxWidth: 350 } }, item["name"]),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 10px", color: "#6b7280" } }, item["unit"] || "—"),
+                    /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 10px", fontWeight: 700 } }, "₪" + fmt(item["price"]))
+                  );
+                })
+              )
+            )
+          )
+    )
+  );
+}
 function SupplierPriceList(props) {
-  var items = props.items, onUpdate = props.onUpdate;
+  var items = props.items, onUpdate = props.onUpdate, suppliersDirectory = props.suppliersDirectory || [];
   const [search, setSearch] = useState("");
   const [filterCat, setFCat] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -6792,6 +6877,7 @@ function SupplierPriceList(props) {
   const [newItem, setNewItem] = useState({ id: "", cat: "", name: "", unit: "", price: "" });
   const [editId, setEditId] = useState(null);
   const [editPrice, setEditPrice] = useState("");
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
   var cats = items.map(function(i) {
     return i.cat;
   }).filter(function(c, idx, arr) {
@@ -6873,7 +6959,28 @@ function SupplierPriceList(props) {
     setEditId(null);
   };
   var inp = { padding: "7px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, fontFamily: "inherit", width: "100%", boxSizing: "border-box" };
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(Input, { value: search, onChange: function(e) {
+  var sapphireBorder = "#2563eb";
+  var grayBorder = "#e5e7eb";
+  // === רשימת ספקים (חבילה B): כרטיסים מעל הטבלה השטוחה, לחיצה ⇒ setSelectedSupplier ===
+  var suppliersListSection = suppliersDirectory.length > 0 ? /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16 } },
+    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 } }, "ספקים"),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+      suppliersDirectory["map"](function(sup) {
+        var count = items.filter(function(it) { return it["supplierId"] === sup["id"]; }).length;
+        return /* @__PURE__ */ React.createElement("div", {
+          key: sup["id"],
+          onClick: function() { setSelectedSupplier(sup); },
+          onMouseOver: function(e) { e.currentTarget["style"]["borderColor"] = sapphireBorder; },
+          onMouseOut: function(e) { e.currentTarget["style"]["borderColor"] = grayBorder; },
+          style: { background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb", padding: "10px 14px", cursor: "pointer", minWidth: 140, transition: "border-color 0.15s" }
+        },
+          /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 14 } }, sup["name"]),
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#6b7280", marginTop: 2 } }, count + " פריטים")
+        );
+      })
+    )
+  ) : null;
+  return /* @__PURE__ */ React.createElement("div", null, suppliersListSection, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement(Input, { value: search, onChange: function(e) {
     setSearch(e.target.value);
   }, placeholder: "\u{1F50D} חיפוש...", style: { maxWidth: 200 } }), /* @__PURE__ */ React.createElement(Select, { value: filterCat, onChange: function(e) {
     setFCat(e.target.value);
@@ -6936,7 +7043,7 @@ function SupplierPriceList(props) {
       },
       "\u{1F5D1}️"
     )));
-  }))))));
+  }))))), selectedSupplier ? /* @__PURE__ */ React.createElement(SupplierItemsModal, { supplier: selectedSupplier, items: items, onClose: function() { setSelectedSupplier(null); } }) : null);
 }
 function DakalCatalog(props) {
   var build = props.build, maint = props.maint, onAddToQuote = props.onAddToQuote;
