@@ -1436,6 +1436,82 @@ function InvoiceHistory({ invoices, onRefresh, onEdit }) {
     await db.set("invoices", all.filter((i) => i.id !== id));
     onRefresh();
   };
+  const printInvoice = function(inv) {
+    var fN = function(n) { return (Number(n)||0).toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    var T_BUSINESS = 'אביב סבג מערכות חשמל בע"מ';
+    var T_LICENSE = 'רישיון קבלן | צוות מוסמכים';
+    var T_INVOICE = 'חשבון';
+    var T_FINAL = 'חשבון סופי';
+    var T_PARTIAL = 'חשבון חלקי';
+    var T_PROJECT = 'פרויקט';
+    var T_PERIOD = 'תקופה';
+    var T_NUM = "מס'";
+    var T_DESC = 'תיאור';
+    var T_UNIT = "יח'";
+    var T_PREV_QTY = 'כמות קודמת';
+    var T_PERIOD_QTY = 'כמות תקופה';
+    var T_UNIT_PRICE = "מחיר יח'";
+    var T_PERIOD_TOTAL = 'סה"כ תקופה';
+    var T_CUM_TOTAL = 'סה"כ מצטבר';
+    var T_SUBTOTAL = 'סה"כ ביניים';
+    var T_RETENTION = 'ערבות בנקאית (ניכוי)';
+    var T_RELEASE = 'שחרור ערבות';
+    var T_VAT = 'מע"מ';
+    var T_TOTAL = 'סה"כ לתשלום';
+    var T_CUM = 'סה"כ מצטבר מתחילת הפרויקט';
+    var T_TERMS = 'תנאי תשלום: שוטף+30 | מחירים ללא מע"מ';
+    var statusLabel = inv.isFinal ? T_FINAL : T_PARTIAL;
+    var rows = (inv.items || [])["map"](function(item, i) {
+      var prevQty = item.prevApprovedQty || 0;
+      var prevQtyCell = prevQty > 0 ? prevQty.toLocaleString("he-IL", { maximumFractionDigits: 2 }) : "—";
+      return '<tr><td>' + (item.itemNum || (i+1)) + '</td>' +
+        '<td>' + (item.itemDesc || "") + '</td>' +
+        '<td>' + (item.unit || "") + '</td>' +
+        '<td style="text-align:center">' + prevQtyCell + '</td>' +
+        '<td style="text-align:center">' + (item.periodQty || 0).toLocaleString("he-IL", { maximumFractionDigits: 2 }) + '</td>' +
+        '<td>₪' + fN(item.unitPrice || 0) + '</td>' +
+        '<td style="font-weight:bold">₪' + fN(item.periodAmount || 0) + '</td>' +
+        '<td style="color:#7c3aed">₪' + fN(item.cumulativeAmount || 0) + '</td></tr>';
+    });
+    var sumRows = [];
+    sumRows.push('<tr><td colspan="7" style="padding:6px 8px;text-align:left;font-weight:600">' + T_SUBTOTAL + '</td><td style="padding:6px 8px;font-weight:bold">₪' + fN(inv.subtotal || 0) + '</td></tr>');
+    if (inv.retention) sumRows.push('<tr><td colspan="7" style="padding:6px 8px;text-align:left;color:#dc2626">' + T_RETENTION + '</td><td style="padding:6px 8px;color:#dc2626">-₪' + fN(inv.retention) + '</td></tr>');
+    if (inv.retentionRelease) sumRows.push('<tr><td colspan="7" style="padding:6px 8px;text-align:left;color:#059669">' + T_RELEASE + '</td><td style="padding:6px 8px;color:#059669">+₪' + fN(inv.retentionRelease) + '</td></tr>');
+    sumRows.push('<tr><td colspan="7" style="padding:6px 8px;text-align:left;color:#7c3aed">' + T_VAT + '</td><td style="padding:6px 8px;color:#7c3aed">₪' + fN(inv.vat || 0) + '</td></tr>');
+    sumRows.push('<tr style="background:#eff6ff;font-weight:bold;font-size:14px"><td colspan="7" style="padding:8px;text-align:left">✅ ' + T_TOTAL + '</td><td style="padding:8px">₪' + fN(inv.total || 0) + '</td></tr>');
+    if (inv.totalCumulativeAmount > 0) sumRows.push('<tr style="background:#faf5ff;font-weight:600"><td colspan="7" style="padding:6px 8px;text-align:left;color:#7c3aed">' + T_CUM + '</td><td style="padding:6px 8px;color:#7c3aed">₪' + fN(inv.totalCumulativeAmount) + '</td></tr>');
+    var w = window.open("", "_blank");
+    var html = '<html dir="rtl"><body style="font-family:Arial;padding:30px;color:#111">' +
+      '<div style="display:flex;justify-content:space-between;align-items:top;margin-bottom:20px">' +
+      '<div><h1 style="font-size:20px;margin:0">' + T_BUSINESS + '</h1>' +
+      '<div style="font-size:12px;color:#666;margin-top:4px">' + T_LICENSE + '</div></div>' +
+      '<div style="text-align:left">' +
+      '<div style="font-size:14px;font-weight:bold">' + T_INVOICE + ' ' + (inv.invoiceNum || "") + '</div>' +
+      '<div style="font-size:12px;color:#666">' + (inv.createdAt || "") + '</div>' +
+      '<div style="font-size:11px;color:#7c3aed;margin-top:2px">' + statusLabel + '</div></div>' +
+      '</div>' +
+      '<div style="background:#f8fafc;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:13px">' +
+      '<b>' + T_PROJECT + ':</b> ' + (inv.projectName || "—") + ' | <b>' + T_PERIOD + ':</b> ' + (inv.startDate || "—") + ' – ' + (inv.endDate || "—") +
+      '</div>' +
+      '<table border="1" style="border-collapse:collapse;width:100%;font-size:12px">' +
+      '<tr style="background:#1e40af;color:#fff">' +
+      '<th style="padding:7px">' + T_NUM + '</th>' +
+      '<th>' + T_DESC + '</th>' +
+      '<th>' + T_UNIT + '</th>' +
+      '<th>' + T_PREV_QTY + '</th>' +
+      '<th>' + T_PERIOD_QTY + '</th>' +
+      '<th>' + T_UNIT_PRICE + '</th>' +
+      '<th>' + T_PERIOD_TOTAL + '</th>' +
+      '<th>' + T_CUM_TOTAL + '</th>' +
+      '</tr>' +
+      rows.join("") +
+      sumRows.join("") +
+      '</table>' +
+      '<div style="margin-top:12px;font-size:11px;color:#888">' + T_TERMS + '</div>' +
+      '</body></html>';
+    w.document.write(html);
+    w.print();
+  };
   const sorted = [...invoices].sort((a, b) => b.createdAt?.localeCompare(a.createdAt) || 0);
   if (sorted.length === 0) return /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 40 } }, "\u05D0\u05D9\u05DF \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E2\u05D3\u05D9\u05D9\u05DF");
   return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, sorted.map((inv) => /* @__PURE__ */ React.createElement(Card, { key: inv.id, style: { padding: 0 } }, /* @__PURE__ */ React.createElement(
@@ -1452,6 +1528,8 @@ function InvoiceHistory({ invoices, onRefresh, onEdit }) {
 inv.status ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, padding: "2px 7px", borderRadius: 4, background: (STATUS_COLORS[inv.status]||"#6b7280")+"22", color: STATUS_COLORS[inv.status]||"#6b7280", fontWeight: 600, whiteSpace: "nowrap" } }, STATUS_LABELS[inv.status]||inv.status) : null,
 /* Edit button */
 onEdit ? /* @__PURE__ */ React.createElement("button", { onClick: function(e){ e.stopPropagation(); onEdit(inv); }, style: { fontSize: 11, padding: "3px 8px", background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 4, cursor: "pointer", fontWeight: 600 } }, "\u270F\uFE0F \u05E2\u05E8\u05D5\u05DA") : null,
+/* Print button */
+/* @__PURE__ */ React.createElement("button", { onClick: function(e){ e.stopPropagation(); printInvoice(inv); }, style: { fontSize: 11, padding: "3px 8px", background: "#f0fdf4", color: "#059669", border: "1px solid #bbf7d0", borderRadius: 4, cursor: "pointer", fontWeight: 600 } }, "🖨️ הדפס PDF"),
 /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
       e.stopPropagation();
       del(inv.id);
