@@ -95,6 +95,79 @@ const db = {
     localStorage.removeItem("aviv_pm_session");
   }
 };
+// === מערכת גיבוי אוטומטי ===
+// הורדת קובץ JSON עם כל ה-DB. אם opts.silent=true — מציג הודעת גיבוי יומי במקום הצלחה רגילה.
+async function downloadBackup(opts) {
+  opts = opts || {};
+  var KEYS = [
+    "users", "projects", "worklogs", "invoices", "expenses", "attendance",
+    "cashflow_suppliers", "cashflow", "cashflow_standing_orders",
+    "cashflow_settings", "cashflow_categories",
+    "supplier_invoices", "supplier_items", "invoice_items",
+    "dakal_build", "dakal_maint", "item_decompositions",
+    "business_settings", "globalWorkers", "pricing_factors", "quotes"
+  ];
+  var data = {};
+  var errors = [];
+  // קריאה לכל מפתח בנפרד עם try/catch — נפילה של מפתח אחד לא תפיל את כל הגיבוי
+  for (var i = 0; i < KEYS.length; i++) {
+    var k = KEYS[i];
+    try {
+      data[k] = await db.get(k);
+    } catch (err) {
+      data[k] = null;
+      errors.push(k);
+    }
+  }
+  var payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    keys: KEYS,
+    errors: errors,
+    data: data
+  };
+  // שם הקובץ: backup-aviv-YYYY-MM-DDTHH-MM-SS.json (החלפת : ב-- כי : לא חוקי בשם קובץ ב-Windows)
+  var ts = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+  var filename = "backup-aviv-" + ts + ".json";
+  try {
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  } catch (err) {
+    alert("❌ שגיאה ביצירת קובץ הגיבוי: " + (err && err.message ? err.message : ""));
+    return false;
+  }
+  // עדכון timestamp של הגיבוי האחרון
+  try {
+    localStorage.setItem("lastBackupDate", new Date().toISOString());
+  } catch (e) {}
+  var errMsg = errors.length > 0 ? " (טבלאות שנכשלו: " + errors.join(", ") + ")" : "";
+  if (opts.silent) {
+    alert("📦 גיבוי יומי הורד אוטומטית" + errMsg);
+  } else {
+    alert("✅ הגיבוי ירד בהצלחה!" + errMsg);
+  }
+  return true;
+}
+// בדיקה אם עבר יותר מ-24 שעות מאז הגיבוי האחרון — אם כן, גיבוי אוטומטי שקט
+async function maybeAutoBackup() {
+  try {
+    var last = localStorage.getItem("lastBackupDate");
+    var now = Date.now();
+    var DAY_MS = 24 * 60 * 60 * 1000;
+    if (!last || (now - new Date(last).getTime()) >= DAY_MS) {
+      await downloadBackup({ silent: true });
+    }
+  } catch (e) {
+    // לא קריטי — בדיקה כושלת = פשוט לא נגבה הפעם, ננסה שוב בפתיחה הבאה
+  }
+}
 async function maybeInit() {
   const users = await db.get("users");
   if (users && users.length > 0) return;
@@ -367,7 +440,17 @@ function Layout({ user, page, setPage, children }) {
     },
     /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16 } }, n.icon),
     n.label
-  ))), /* @__PURE__ */ React.createElement("div", { style: { padding: 12, borderTop: "1px solid #334155" } }, /* @__PURE__ */ React.createElement(
+  ))), /* @__PURE__ */ React.createElement("div", { style: { padding: 12, borderTop: "1px solid #334155" } },
+  /* כפתור גיבוי ידני — מוריד קובץ JSON של כל ה-DB */
+  /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: function () { downloadBackup(); },
+      style: { width: "100%", padding: "8px", border: "1px solid #047857", borderRadius: 6, background: "#059669", color: "#fff", cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600, marginBottom: 8 }
+    },
+    "💾 גיבוי עכשיו"
+  ),
+  /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: async () => {
@@ -7251,6 +7334,8 @@ function App() {
         setPage(session.role === ROLES.ADMIN ? "dashboard" : fp ? fp[0] : "attendance");
       }
       setReady(true);
+      // גיבוי אוטומטי יומי — רק אם יש session מחובר; לא חוסם UI כי אין await ויש try/catch פנימי
+      if (session) maybeAutoBackup();
     });
   }, []);
   if (!ready) return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f1f5f9", fontFamily: "'Segoe UI',Arial,sans-serif" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#6b7280" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "\u26A1"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16 } }, "\u05D8\u05D5\u05E2\u05DF \u05DE\u05E2\u05E8\u05DB\u05EA...")));
