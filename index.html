@@ -3423,10 +3423,25 @@ function CashFlowPage() {
   var standingOrderTx = React.useMemo(function() {
     var result = [];
     var now = new Date();
+    // חישוב טווח דינמי: עד ה-endDate המאוחר ביותר בהוראות פעילות; fallback 12 חודשים אם קיימת פעילה ללא endDate
+    var maxOffset = 5;
+    var activeSOs = (standingOrders || []).filter(function(so){ return so["active"]; });
+    var latestEnd = activeSOs
+      .filter(function(so){ return so["endDate"]; })
+      .reduce(function(acc, so){ return so["endDate"] > acc ? so["endDate"] : acc; }, "");
+    if (latestEnd) {
+      var parts = latestEnd.split("-");
+      var ey = parseInt(parts[0], 10);
+      var em = parseInt(parts[1], 10);
+      var diff = (ey - now.getFullYear()) * 12 + (em - 1 - now.getMonth());
+      if (diff > maxOffset) maxOffset = diff;
+    }
+    if (activeSOs.some(function(so){ return !so["endDate"]; })) {
+      if (12 > maxOffset) maxOffset = 12;
+    }
     standingOrders.forEach(function(so) {
       if (!so.active) return;
-      // Generate for next 6 months
-      for (var m = -1; m <= 5; m++) {
+      for (var m = -1; m <= maxOffset; m++) {
         var d = new Date(now.getFullYear(), now.getMonth() + m, so.dayOfMonth || 1);
         var dateStr = nextBusinessDay(d.toISOString().slice(0,10));
         var monthKey = dateStr.slice(0,7);
