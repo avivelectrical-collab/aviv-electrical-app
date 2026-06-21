@@ -4417,46 +4417,54 @@ function WorkLogEditModal({ log, projects, user, onSave, onClose }) {
 }
 const PRICING_SEED = typeof window !== "undefined" && window.__PRICING_SEED || { supplier: [], dakal_b: [], dakal_m: [] };
 async function aiMatchRow(desc, unit, qty, supplierItems, dakalB, dakalM) {
-  var words = desc.replace(/[0-9×*\/"']/g, " ").split(/\s+/).filter(function(w) {
-    return w.length > 2;
-  });
-  var relS = supplierItems.map(function(s) {
-    var nameMatches = words.filter(function(w){ return (s.name||"").includes(w); }).length;
-    var catMatches = words.filter(function(w){ return (s.cat||"").includes(w); }).length;
-    // Exact name word match scores higher than category match
-    var score = nameMatches * 3 + catMatches;
-    return { item: s, score: score };
-  }).filter(function(x){ return x.score > 0; })
-    .sort(function(a,b){ return b.score - a.score; })
-    .slice(0, 15)
-    .map(function(x){ return x.item; });
+  function norm(str) {
+    return (str || "").toString().toLowerCase().replace(/[×*]/g, "x").replace(/["'״׳]/g, "").replace(/\s+/g, " ").trim();
+  }
+  function toks(str) {
+    return norm(str).split(/[\s,.\/()\-]+/).filter(function(t) { return t.length >= 2; });
+  }
+  var qTokens = toks(desc);
+  var suppTxt = supplierItems.map(function(s) {
+    return s["id"] + ": " + s["name"] + " | " + (s["unit"] || "") + " | ₪" + s["price"];
+  }).join("\n") || "אין";
   var relD = dakalB.concat(dakalM).map(function(d) {
-    var matches = words.filter(function(w){ return (d.d||"").includes(w); }).length;
-    return { item: d, score: matches };
-  }).filter(function(x){ return x.score > 0; })
-    .sort(function(a,b){ return b.score - a.score; })
-    .slice(0, 12)
-    .map(function(x){ return x.item; });
-  var suppTxt = relS.map(function(s) {
-    return s.id + ": " + s.name + " " + s.unit + " \u20AA" + s.price;
-  }).join("\n") || "\u05D0\u05D9\u05DF";
+    var dl = norm(d["d"]);
+    var hits = qTokens.filter(function(t) { return dl.indexOf(t) !== -1; }).length;
+    var specHits = qTokens.filter(function(t) { return /\d/.test(t) && dl.indexOf(t) !== -1; }).length;
+    return { item: d, score: hits + specHits * 2 };
+  }).filter(function(x) { return x.score > 0; })
+    .sort(function(a, b) { return b.score - a.score; })
+    .slice(0, 25).map(function(x) { return x.item; });
   var dakalTxt = relD.map(function(d) {
-    return d.c + ": " + d.d.slice(0, 55) + " \u20AA" + d.h + "-" + d.l;
-  }).join("\n") || "\u05D0\u05D9\u05DF";
-  var prompt = '\u05E1\u05E2\u05D9\u05E3: "' + desc + `" | \u05D9\u05D7': ` + (unit || "\u05D9\u05D7'") + " | \u05DB\u05DE\u05D5\u05EA: " + qty + "\n\n\u05E1\u05E4\u05E7\u05D9\u05DD \u05E8\u05DC\u05D5\u05D5\u05E0\u05D8\u05D9\u05D9\u05DD:\n" + suppTxt + "\n\n\u05D3\u05E7\u05DC \u05E8\u05DC\u05D5\u05D5\u05E0\u05D8\u05D9:\n" + dakalTxt + '\n\n\u05D4\u05D7\u05D6\u05E8 JSON \u05D1\u05DC\u05D1\u05D3:\n{"materials":[{"code":"","name":"","unit":"","qtyPerUnit":1,"price":0}],"matCostPerUnit":0,"laborHoursPerUnit":0.5,"suggestedBasePrice":0,"dakalCode":"","dakalHigh":0,"dakalLow":0,"confidence":"high","missingInfo":"","notes":""}';
+    return d["c"] + ": " + (d["d"] || "").slice(0, 70) + " | ₪" + d["h"] + "-" + d["l"];
+  }).join("\n") || "אין";
+  var prompt = `אתה מתמחר עבודות חשמל. התאם לסעיף את פריט/פריטי הספק המתאימים ביותר מהמחירון, וחשב עלות חומר ליחידה.
+
+סעיף: "${desc}" | יחידה: ${unit || "יח'"} | כמות: ${qty}
+
+חשוב מאוד: התאם לפי המפרט המדויק — מספר גידים × חתך (כמו 5x10), גודל במ"מ, סוג (כבל/חוט/מוליך/צינור וכד'). אל תבחר פריט עם חתך או גודל שונה. אם אין התאמה טובה — החזר materials ריק וציין ב-notes.
+
+מחירון ספקים (id: שם | יחידה | מחיר):
+${suppTxt}
+
+דקל רלוונטי (קוד: תיאור | טווח מחיר):
+${dakalTxt}
+
+החזר JSON בלבד, בלי טקסט נוסף. ב-materials.code שים את ה-id של פריט הספק:
+{"materials":[{"code":"","name":"","unit":"","qtyPerUnit":1,"price":0}],"matCostPerUnit":0,"laborHoursPerUnit":0.5,"suggestedBasePrice":0,"dakalCode":"","dakalHigh":0,"dakalLow":0,"confidence":"high","missingInfo":"","notes":""}`;
   try {
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": (window.__anthropicKey||localStorage.getItem("__anthropicKey")||""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 600, messages: [{ role: "user", content: prompt }] })
+      headers: { "Content-Type": "application/json", "x-api-key": (window.__anthropicKey || localStorage.getItem("__anthropicKey") || ""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1024, messages: [{ role: "user", content: prompt }] })
     });
+    if (!resp.ok) { console.error("aiMatchRow API:", resp.status); return null; }
     var data = await resp.json();
-    var txt = (data.content || []).filter(function(b) {
-      return b.type === "text";
-    })[0];
+    var txt = (data["content"] || []).filter(function(b) { return b["type"] === "text"; })[0];
     if (!txt) return null;
-    return JSON.parse(txt.text.replace(/```json|```/g, "").trim());
+    return JSON.parse(txt["text"].replace(/```json|```/g, "").trim());
   } catch (e) {
+    console.error("aiMatchRow failed:", e);
     return null;
   }
 }
