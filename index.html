@@ -65,12 +65,8 @@ const fmt2 = (n) => (n || 0).toLocaleString("he-IL", { minimumFractionDigits: 2,
 const genId = () => Math.random().toString(36).substr(2, 9) + Date.now().toString(36).substr(-4);
 const db = {
   async get(key) {
-    try {
-      const s = await firestore.collection("pm_data").doc(key).get();
-      return s.exists ? s.data().value : null;
-    } catch {
-      return null;
-    }
+    const s = await firestore.collection("pm_data").doc(key).get();
+    return s.exists ? s.data().value : null;
   },
   async set(key, val) {
     try {
@@ -7420,6 +7416,10 @@ function App() {
       setReady(true);
       // גיבוי אוטומטי יומי — רק אם יש session מחובר; לא חוסם UI כי אין await ויש try/catch פנימי
       if (session) maybeAutoBackup();
+    }).catch((e) => {
+      // למקרה כשל אתחול (תקלת רשת) — משחררים את ה-UI בלי לדרוס נתונים
+      console.error("init failed:", e);
+      setReady(true);
     });
   }, []);
   if (!ready) return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f1f5f9", fontFamily: "'Segoe UI',Arial,sans-serif" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#6b7280" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "\u26A1"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16 } }, "\u05D8\u05D5\u05E2\u05DF \u05DE\u05E2\u05E8\u05DB\u05EA...")));
