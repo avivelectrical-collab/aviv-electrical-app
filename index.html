@@ -4438,17 +4438,12 @@ async function aiMatchRow(desc, unit, qty, supplierItems, dakalB, dakalM) {
   var dakalTxt = relD.map(function(d) {
     return d["c"] + ": " + (d["d"] || "").slice(0, 70) + " | ₪" + d["h"] + "-" + d["l"];
   }).join("\n") || "אין";
-  var prompt = `אתה מתמחר עבודות חשמל. התאם לסעיף את פריט/פריטי הספק המתאימים ביותר מהמחירון, וחשב עלות חומר ליחידה.
-
-סעיף: "${desc}" | יחידה: ${unit || "יח'"} | כמות: ${qty}
+  var stable = `אתה מתמחר עבודות חשמל. עבור הסעיף שיינתן, התאם את פריט/פריטי הספק המתאימים ביותר מהמחירון, וחשב עלות חומר ליחידה.
 
 התאם לפי המפרט המדויק — מספר גידים על חתך (כמו 5x10), גודל בממ, סוג (כבל/חוט/מוליך/צינור). אל תבחר פריט עם חתך או גודל שונה. אם אין התאמה טובה — החזר materials ריק וציין ב-notes.
 
 מחירון ספקים (id: שם | יחידה | מחיר):
 ${suppTxt}
-
-דקל רלוונטי (קוד: תיאור | טווח מחיר):
-${dakalTxt}
 
 כללי פלט (חובה):
 - החזר JSON תקין בלבד. בלי טקסט לפני או אחרי, ובלי code fences.
@@ -4457,26 +4452,37 @@ ${dakalTxt}
 - ב-materials.code שים את ה-id של פריט הספק.
 
 מבנה: {"materials":[{"code":"","name":"","unit":"","qtyPerUnit":1,"price":0}],"matCostPerUnit":0,"laborHoursPerUnit":0.5,"suggestedBasePrice":0,"dakalCode":"","dakalHigh":0,"dakalLow":0,"confidence":"high","missingInfo":"","notes":""}`;
+  var variable = `סעיף: "${desc}" | יחידה: ${unit || "יח'"} | כמות: ${qty}
+
+דקל רלוונטי (קוד: תיאור | טווח מחיר):
+${dakalTxt}`;
   try {
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": (window.__anthropicKey || localStorage.getItem("__anthropicKey") || ""), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2048, messages: [{ role: "user", content: prompt }] })
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2048,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: stable, cache_control: { type: "ephemeral" } },
+            { type: "text", text: variable }
+          ]
+        }]
+      })
     });
     if (!resp.ok) { console.error("aiMatchRow API:", resp.status); return null; }
     var data = await resp.json();
+    if (data["usage"]) console.log("aiMatchRow usage:", data["usage"]);
     var txt = (data["content"] || []).filter(function(b) { return b["type"] === "text"; })[0];
     if (!txt) return null;
     var raw = txt["text"];
     var i = raw.indexOf("{");
     var j = raw.lastIndexOf("}");
     if (i < 0 || j < 0) { console.error("aiMatchRow no JSON:", raw); return null; }
-    try {
-      return JSON.parse(raw.slice(i, j + 1));
-    } catch (err) {
-      console.error("aiMatchRow parse fail:", raw);
-      return null;
-    }
+    try { return JSON.parse(raw.slice(i, j + 1)); }
+    catch (err) { console.error("aiMatchRow parse fail:", raw); return null; }
   } catch (e) {
     console.error("aiMatchRow failed:", e);
     return null;
