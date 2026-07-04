@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// כללי אבטחה ל-Firestore — פרויקט אביב מערכות חשמל (שלב 1, מסלול A)
+//
+// ⚠️ אין לפרסם את הקובץ הזה עד שכל העובדים עברו לכניסה החדשה (Firebase Auth).
+// הסיבה: הכללים דורשים משתמש מחובר (request.auth). כל עוד מישהו עדיין נכנס
+// דרך מסך הכניסה הישן (שאינו משתמש ב-Firebase Auth), פרסום הכללים ינתק אותו
+// מכל הנתונים. הפרסום מתוזמן לסוף שלב 1, כשאף אחד לא עובד.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── פונקציות עזר ──
+
+    // האם הבקשה מגיעה ממשתמש מחובר (עבר אימות Firebase Auth)
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // האם המשתמש המחובר הוא מנהל — נקבע לפי מסמך app_users שלו
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/app_users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ── אוסף פרופילי המשתמשים (app_users) ──
+    // כל משתמש קורא רק את המסמך של עצמו; מנהל קורא את כולם.
+    // כתיבה (יצירה/עדכון/מחיקה של משתמשים) — רק למנהל.
+    match /app_users/{uid} {
+      allow read:  if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // ── כל נתוני העסק (pm_data) ──
+    // קריאה/כתיבה רק למשתמש מחובר. משתמש לא-מחובר (זר עם הקונפיגורציה בלבד)
+    // נחסם לחלוטין — זה הרווח האבטחתי המרכזי של שלב 1.
+    //
+    // מגבלה מודעת (מסלול A): המבנה הנוכחי שומר כל סוג נתונים כמסמך-מערך יחיד
+    // (למשל כל היומנים במסמך אחד pm_data/worklogs), ולכן אי אפשר לאכוף כאן
+    // הרשאה ברמת-רשומה או ברמת-שדה (הסתרת מחירי ספק/תעריפי שכר מעובד).
+    // אכיפה זו נשארת ב-UI עד פיצול מבנה הנתונים בשלב 2.
+    match /pm_data/{key} {
+      allow read, write: if signedIn();
+    }
+
+    // כל שאר הנתיבים — נחסמים כברירת מחדל (אין match → אין גישה).
+  }
+}

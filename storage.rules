@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// כללי אבטחה ל-Firebase Storage — פרויקט אביב מערכות חשמל (שלב 1, מסלול A)
+//
+// הערה: כרגע האפליקציה אינה משתמשת ב-Storage בפועל (קבצי חשבוניות נשמרים
+// כ-data-URL בתוך Firestore בגלל הגבלת חיוב). הקובץ מוכן מראש, ויופעל
+// כשנחזיר את Storage (שלב 2). כמו firestore.rules — לא לפרסם עד שכל
+// העובדים עברו לכניסה החדשה.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // קריאה/כתיבה של קבצים — רק למשתמש מחובר.
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
