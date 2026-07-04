@@ -169,4 +169,45 @@ git push
 
 ---
 
+## 🔒 כללי עבודה לפרויקט השדרוג (upgrade-v2) — מחייבים בכל השלבים
+
+> המערכת **בשימוש פעיל יומיומי** של אביב והעובדים. אסור שהעבודה תפגע בגרסה החיה.
+
+- **א. לא נוגעים בגרסה החיה.** כל העבודה בענף `upgrade-v2`. `main` (שממנו Vercel פורס לפרודקשן) לא משתנה עד אישור מפורש להחלפה.
+- **ב. סביבת בדיקות נפרדת** לפני כל החלפה חיה — אביב בודק את הגרסה החדשה בנפרד (Vercel Preview Deployment של הענף / קובץ מקומי).
+- **ג. migration משתמשים דו-שלבי:** שלב 1 — יצירת חשבונות Auth *לצד* המערכת הקיימת (בלי למחוק סיסמאות ישנות, בלי להחליף מסך כניסה; המערכת הישנה ממשיכה לעבוד). שלב 2 — רק אחרי אימות שהחשבונות עובדים: החלפת מסך כניסה + מחיקת סיסמאות, בשעה שאף אחד לא עובד.
+- **ד. פרסום Firestore Rules** חל מיידית על כולם — מתזמנים רק אחרי שכל העובדים עברו לכניסה החדשה.
+- **ה. שינוי מבנה נתונים = מעתיקים, לא מעבירים.** הנתונים הישנים נשארים ב-Firestore ללא שינוי עד אימות (ספירת רשומות + סכומים זהים). מחיקת מבנה ישן — רק באישור מפורש.
+- **ו. גיבוי לפני נגיעה במשתמשים/נתונים:** ייצוא JSON מלא של כל `pm_data` לקובץ מקומי.
+- **ז. Rollback:** לפני כל החלפה חיה — הסבר של משפט אחד איך מחזירים את המצב הקודם.
+
+---
+
+## 🗺️ מיפוי ארכיטקטורה (אבחון שלב 0)
+
+### מודל הנתונים — קריטי
+כל הנתונים באוסף Firestore **יחיד** בשם `pm_data`: מסמך אחד לכל "מפתח", והערך הוא JSON גדול (בד"כ מערך).
+```js
+db.get(key)      → firestore.collection("pm_data").doc(key).get() → .data().value
+db.set(key,val)  → firestore.collection("pm_data").doc(key).set({ value: val })
+```
+**משמעות:** כל היומנים הם מערך אחד במסמך `pm_data/worklogs`, כל הפרויקטים ב-`pm_data/projects` וכו'. כללי Firestore חלים על מסמך שלם — לכן אכיפה ברמת-רשומה (worker כותב רק את שלו) **לא אפשרית** במודל הזה בלי פיצול (נדחה לשלב 2). שלב 1 = מסלול A (Auth + חסימת זרים; אכיפת שדות נשארת ב-UI בינתיים).
+
+מפתחות `pm_data` (מתוך `downloadBackup`): `users, projects, worklogs, invoices, expenses, attendance, cashflow_suppliers, cashflow, cashflow_standing_orders, cashflow_settings, cashflow_categories, supplier_invoices, supplier_items, invoice_items, dakal_build, dakal_maint, item_decompositions, business_settings, globalWorkers, pricing_factors, quotes`.
+
+### Stack ומיקומים ב-index.html
+- React 18 UMD מ-CDN (בלי build), `React.createElement`. Firebase 9.23 compat (firestore + storage). RTL עברית.
+- **שורה 30 = `window.__PRICING_SEED`** (~580KB בשורה אחת): מחירון ספקים + קטלוג דקל.
+- `db` layer: שורות ~64-95. הרשאות: `DEFAULT_PERMS`/`getPerms` שורות ~186-198. משתמשי דמו: `maybeInit` שורות ~168-174.
+- מסך `Login` שורה ~356 (אימות client-side, `users.find(u=>u.password===...)`).
+- ~90 קומפוננטות. AI: קריאות `fetch` ל-`api.anthropic.com` ב-9 מקומות, מפתח מ-localStorage (`__anthropicKey`).
+
+### חוב אבטחה (יעד שלב 1, מסלול A)
+- סיסמאות בטקסט גלוי (שורות 172-174) + אימות client-side בלבד + אין Firebase Auth + אין Rules אפקטיביים.
+- מפתח Anthropic חשוף בדפדפן (`anthropic-dangerous-direct-browser-access`) — **נדחה לשלב 2** (proxy דרך Cloud Function). אומת שאין מפתח אמיתי בקוד/בהיסטוריית git.
+
+### חוב UX (שלב 3): `alert()`×45, `confirm()`×21, `@media`×0.
+
+---
+
 **בהצלחה. תשאל אותי כל דבר שלא ברור.**
