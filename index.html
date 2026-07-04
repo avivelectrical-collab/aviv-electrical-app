@@ -355,43 +355,72 @@ function calcQuote({
   };
 }
 const fmt = (n) => (n || 0).toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-function Login({ onLogin }) {
-  const [username, setUsername] = useState("");
+// המרת קוד שגיאה של Firebase Auth להודעה בעברית
+function authErrorHe(code) {
+  switch (code) {
+    case "auth/invalid-email": return "כתובת אימייל לא תקינה";
+    case "auth/user-disabled": return "החשבון מושבת. פנה למנהל.";
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+    case "auth/invalid-login-credentials": return "אימייל או סיסמה שגויים";
+    case "auth/too-many-requests": return "יותר מדי ניסיונות כניסה. נסה שוב בעוד כמה דקות.";
+    case "auth/network-request-failed": return "אין חיבור לאינטרנט. בדוק את הרשת ונסה שוב.";
+    case "auth/missing-password": return "יש להזין סיסמה";
+    default: return "שגיאת התחברות. נסה שוב.";
+  }
+}
+function Login({ notice }) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
+  const inputStyle = { width: "100%", padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 14, fontFamily: "inherit", boxSizing: "border-box", outline: "none", direction: "ltr", textAlign: "right" };
+  // התחברות מול Firebase Authentication. בהצלחה — onAuthStateChanged ב-App מזהה ומעביר למערכת.
   const handleLogin = async () => {
-    setError("");
+    setError(""); setInfo("");
+    if (!email.trim() || !password) { setError("יש להזין אימייל וסיסמה"); return; }
     setLoading(true);
-    const users = await db.get("users") || [];
-    const user = users.find((u) => u.username === username.trim() && u.password === password);
-    if (user) {
-      await db.setSession(user);
-      onLogin(user);
-    } else {
-      setError("\u05E9\u05DD \u05DE\u05E9\u05EA\u05DE\u05E9 \u05D0\u05D5 \u05E1\u05D9\u05E1\u05DE\u05D4 \u05E9\u05D2\u05D5\u05D9\u05D9\u05DD");
+    try {
+      await auth.signInWithEmailAndPassword(email.trim(), password);
+    } catch (e) {
+      setError(authErrorHe(e && e.code));
+      setLoading(false);
     }
-    setLoading(false);
   };
-  return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", background: "linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI',Arial,sans-serif", direction: "rtl" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 380, background: "#fff", borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,.35)", overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "linear-gradient(135deg,#1e3a5f,#2563eb)", padding: "32px 32px 24px", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { width: 46, height: 46, background: "#fff", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 24, fontWeight: 900, color: "#1e3a5f" } }, "\u05D0")), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", fontSize: 22, fontWeight: 900, lineHeight: 1.1 } }, "\u05D0\u05D1\u05D9\u05D1"), /* @__PURE__ */ React.createElement("div", { style: { color: "#38bdf8", fontSize: 12, fontWeight: 700 } }, "\u05DE\u05E2\u05E8\u05DB\u05D5\u05EA \u05D7\u05E9\u05DE\u05DC"))), /* @__PURE__ */ React.createElement("p", { style: { color: "#93c5fd", margin: "4px 0 0", fontSize: 13 } }, "\u05DE\u05E2\u05E8\u05DB\u05EA \u05E0\u05D9\u05D4\u05D5\u05DC \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8\u05D9\u05DD"), /* @__PURE__ */ React.createElement("p", { style: { color: "#93c5fd", margin: "6px 0 0", fontSize: 13 } }, "\u05DB\u05E0\u05D9\u05E1\u05D4 \u05DC\u05DE\u05E2\u05E8\u05DB\u05EA")), /* @__PURE__ */ React.createElement("div", { style: { padding: 28 } }, error && /* @__PURE__ */ React.createElement(Alert, { type: "error" }, error), /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05DD \u05DE\u05E9\u05EA\u05DE\u05E9", required: true }, /* @__PURE__ */ React.createElement(
-    Input,
-    {
-      value: username,
-      onChange: (e) => setUsername(e.target.value),
-      placeholder: "\u05D4\u05DB\u05E0\u05E1 \u05E9\u05DD \u05DE\u05E9\u05EA\u05DE\u05E9",
-      onKeyDown: (e) => e.key === "Enter" && handleLogin()
+  // שליחת מייל לאיפוס סיסמה (Firebase שולח את המייל).
+  const handleReset = async () => {
+    setError(""); setInfo("");
+    if (!email.trim()) { setError('הזן קודם את כתובת האימייל, ואז לחץ "שכחתי סיסמה"'); return; }
+    try {
+      await auth.sendPasswordResetEmail(email.trim());
+      setInfo("נשלח מייל לאיפוס סיסמה אל " + email.trim() + ". בדוק גם בתיקיית הספאם.");
+    } catch (e) {
+      setError(authErrorHe(e && e.code));
     }
-  )), /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D9\u05E1\u05DE\u05D4", required: true }, /* @__PURE__ */ React.createElement(
-    Input,
-    {
-      type: "password",
-      value: password,
-      onChange: (e) => setPassword(e.target.value),
-      placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
-      onKeyDown: (e) => e.key === "Enter" && handleLogin(),
-      style: { marginBottom: 0 }
-    }
-  )), /* @__PURE__ */ React.createElement(Btn, { onClick: handleLogin, disabled: loading, size: "lg", style: { width: "100%", justifyContent: "center", marginTop: 8 } }, loading ? "\u05DE\u05EA\u05D7\u05D1\u05E8..." : "\u05DB\u05E0\u05D9\u05E1\u05D4 \u2192"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 12, color: "#6b7280" } }, /* @__PURE__ */ React.createElement("strong", null, "\u05DE\u05E9\u05EA\u05DE\u05E9\u05D9 \u05D3\u05DE\u05D5:"), /* @__PURE__ */ React.createElement("br", null), "admin / admin123 \u2014 \u05DE\u05E0\u05D4\u05DC (\u05D2\u05D9\u05E9\u05D4 \u05DE\u05DC\u05D0\u05D4)", /* @__PURE__ */ React.createElement("br", null), "david / 1234 \u2014 \u05E8\u05D0\u05E9 \u05E6\u05D5\u05D5\u05EA (\u05D9\u05D5\u05DE\u05DF + \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA + \u05D3\u05D5\u05D7\u05D5\u05EA)", /* @__PURE__ */ React.createElement("br", null), "yossi / 1234 \u2014 \u05E2\u05D5\u05D1\u05D3 (\u05E9\u05E2\u05D5\u05DF \u05E0\u05D5\u05DB\u05D7\u05D5\u05EA \u05D1\u05DC\u05D1\u05D3)"))));
+  };
+  return React.createElement("div", { style: { minHeight: "100vh", background: "linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI',Arial,sans-serif", direction: "rtl", padding: 16 } },
+    React.createElement("div", { style: { width: 380, maxWidth: "100%", background: "#fff", borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,.35)", overflow: "hidden" } },
+      React.createElement("div", { style: { background: "linear-gradient(135deg,#1e3a5f,#2563eb)", padding: "32px 32px 24px", textAlign: "center" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 8 } },
+          React.createElement("div", { style: { width: 46, height: 46, background: "#fff", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+            React.createElement("span", { style: { fontSize: 24, fontWeight: 900, color: "#1e3a5f" } }, "א")),
+          React.createElement("div", { style: { textAlign: "right" } },
+            React.createElement("div", { style: { color: "#fff", fontSize: 22, fontWeight: 900, lineHeight: 1.1 } }, "אביב"),
+            React.createElement("div", { style: { color: "#38bdf8", fontSize: 12, fontWeight: 700 } }, "מערכות חשמל"))),
+        React.createElement("p", { style: { color: "#93c5fd", margin: "4px 0 0", fontSize: 13 } }, "מערכת ניהול פרויקטים")),
+      React.createElement("div", { style: { padding: 28 } },
+        notice && React.createElement(Alert, { type: "error" }, notice),
+        error && React.createElement(Alert, { type: "error" }, error),
+        info && React.createElement(Alert, { type: "success" }, info),
+        React.createElement(Field, { label: "אימייל", required: true },
+          React.createElement("input", { type: "email", value: email, onChange: (e) => setEmail(e.target.value), placeholder: "name@example.com", onKeyDown: (e) => e.key === "Enter" && handleLogin(), style: inputStyle })),
+        React.createElement(Field, { label: "סיסמה", required: true },
+          React.createElement("input", { type: "password", value: password, onChange: (e) => setPassword(e.target.value), placeholder: "••••••••", onKeyDown: (e) => e.key === "Enter" && handleLogin(), style: inputStyle })),
+        React.createElement(Btn, { onClick: handleLogin, disabled: loading, size: "lg", style: { width: "100%", justifyContent: "center", marginTop: 8 } }, loading ? "מתחבר..." : "כניסה ←"),
+        React.createElement("div", { style: { marginTop: 14, textAlign: "center" } },
+          React.createElement("button", { onClick: handleReset, style: { background: "none", border: "none", color: "#2563eb", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline", padding: 4 } }, "שכחתי סיסמה")))));
 }
 const NAV_ITEMS = [
   { id: "dashboard", icon: "\u{1F4CA}", label: "\u05DC\u05D5\u05D7 \u05D1\u05E7\u05E8\u05D4" },
@@ -452,7 +481,7 @@ function Layout({ user, page, setPage, children }) {
     "button",
     {
       onClick: async () => {
-        await db.clearSession();
+        await auth.signOut();
         window.location.reload();
       },
       style: { width: "100%", padding: "8px", border: "1px solid #475569", borderRadius: 6, background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }
@@ -7434,31 +7463,44 @@ function App() {
   const [user, setUser] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [ready, setReady] = useState(false);
+  const [authError, setAuthError] = useState("");
   useEffect(() => {
-    maybeInit().then(async () => {
-      const session = await db.getSession();
-      if (session) {
-        setUser(session);
-        const sp = getPerms(session);
-        const fp = Object.entries(sp.pages || {}).find(([, v]) => v);
-        setPage(session.role === ROLES.ADMIN ? "dashboard" : fp ? fp[0] : "attendance");
+    // מאזין למצב ההתחברות של Firebase Auth — מופעל בטעינה, בכניסה וביציאה. Firebase זוכר את ההתחברות בין רענונים.
+    const unsub = auth.onAuthStateChanged(async (fbUser) => {
+      try {
+        if (!fbUser) { setUser(null); setReady(true); return; }
+        // קריאת פרופיל המשתמש מאוסף app_users לפי ה-uid
+        const snap = await firestore.collection("app_users").doc(fbUser.uid).get();
+        if (!snap.exists) {
+          await auth.signOut();
+          setAuthError("לא נמצא פרופיל משתמש עבור החשבון הזה. פנה למנהל.");
+          setUser(null); setReady(true); return;
+        }
+        const prof = snap.data();
+        if (prof.active === false) {
+          await auth.signOut();
+          setAuthError("החשבון מושבת. פנה למנהל.");
+          setUser(null); setReady(true); return;
+        }
+        setAuthError("");
+        const u = { uid: fbUser.uid, id: fbUser.uid, email: prof.email || fbUser.email, name: prof.name, role: prof.role, permissions: prof.permissions };
+        setUser(u);
+        const up = getPerms(u);
+        const fp = Object.entries(up.pages || {}).find(([, v]) => v);
+        setPage(u.role === ROLES.ADMIN ? "dashboard" : fp ? fp[0] : "attendance");
+        setReady(true);
+        // גיבוי אוטומטי יומי — לא חוסם UI כי אין await ויש try/catch פנימי
+        maybeAutoBackup();
+      } catch (e) {
+        // כשל קריאה (תקלת רשת) — משחררים את ה-UI בלי לדרוס נתונים
+        console.error("auth state error:", e);
+        setReady(true);
       }
-      setReady(true);
-      // גיבוי אוטומטי יומי — רק אם יש session מחובר; לא חוסם UI כי אין await ויש try/catch פנימי
-      if (session) maybeAutoBackup();
-    }).catch((e) => {
-      // למקרה כשל אתחול (תקלת רשת) — משחררים את ה-UI בלי לדרוס נתונים
-      console.error("init failed:", e);
-      setReady(true);
     });
+    return () => unsub();
   }, []);
   if (!ready) return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f1f5f9", fontFamily: "'Segoe UI',Arial,sans-serif" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "#6b7280" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "\u26A1"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16 } }, "\u05D8\u05D5\u05E2\u05DF \u05DE\u05E2\u05E8\u05DB\u05EA...")));
-  if (!user) return /* @__PURE__ */ React.createElement(Login, { onLogin: (u) => {
-    setUser(u);
-    const up = getPerms(u);
-    const fp2 = Object.entries(up.pages || {}).find(([, v]) => v);
-    setPage(u.role === ROLES.ADMIN ? "dashboard" : fp2 ? fp2[0] : "attendance");
-  } });
+  if (!user) return /* @__PURE__ */ React.createElement(Login, { notice: authError });
   const perms = getPerms(user);
   const allowed = page === "users" || page === "workers" || page === "pricing" || page === "settings" ? user.role === ROLES.ADMIN : user.role === ROLES.ADMIN || perms.pages[page] === true;
   const pages = {
