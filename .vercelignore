@@ -1,0 +1,13 @@
+# קבצים שאסור לפרסם בכתובת הציבורית של Vercel (Preview ו-Production כאחד)
+
+# כלי migration חד-פעמי — יוצר חשבונות Auth. חייב להישאר לא-נגיש. יימחק בסוף.
+migrate-users.html
+
+# קוד צד-שרת של Cloud Functions (כולל node_modules) — לא תוכן אתר
+functions/
+
+# קבצי קונפיגורציה של כללי אבטחה — לא תוכן אתר
+firestore.rules
+storage.rules
+firebase.json
+.firebaserc
