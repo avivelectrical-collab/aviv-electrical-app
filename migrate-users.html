@@ -74,7 +74,8 @@
       { name: "אביב סבג",       email: "aviv.electrical@gmail.com", role: "admin" },
       { name: "שירז מזרחי",      email: "shirazmhas@gmail.com",      role: "admin" },
       { name: "תומס דני",        email: "thomasdani.td@gmail.com",   role: "team_leader" },
-      { name: "דוראל קלפרמן",    email: "dorelk31@gmail.com",        role: "team_leader" }
+      { name: "דוראל קלפרמן",    email: "dorelk31@gmail.com",        role: "team_leader" },
+      { name: "כאמל אכתילאת",    email: "",                          role: "worker", editableEmail: true }
     ];
 
     // בניית הכרטיסים
@@ -86,7 +87,7 @@
         '<div class="row">' +
           '<div class="who">' +
             '<div class="name">' + u.name + ' <span class="badge" style="background:' + ROLE_COLOR[u.role] + '22;color:' + ROLE_COLOR[u.role] + '">' + ROLE_HE[u.role] + '</span></div>' +
-            '<div class="meta">' + u.email + '</div>' +
+            '<div class="meta">' + (u.editableEmail ? '<input type="text" id="em' + i + '" placeholder="הזן מייל כשיהיה" style="width:240px" value="' + (u.email || '') + '"/>' : u.email) + '</div>' +
           '</div>' +
           '<input type="password" id="pw' + i + '" placeholder="סיסמה ראשונית (6+ תווים)" autocomplete="new-password"/>' +
           '<button id="btn' + i + '">צור חשבון</button>' +
@@ -106,18 +107,21 @@
       var u = USERS[i];
       var pw = document.getElementById("pw" + i).value;
       var btn = document.getElementById("btn" + i);
+      // אימייל: לרוב המשתמשים קבוע; לכאמל נלקח מהשדה הניתן לעריכה
+      var email = u.editableEmail ? (document.getElementById("em" + i).value || "").trim() : u.email;
+      if (!email || email.indexOf("@") < 1) { setStatus(i, "❌ הזן כתובת אימייל תקינה", "err"); return; }
       if (!pw || pw.length < 6) { setStatus(i, "❌ הסיסמה חייבת להיות לפחות 6 תווים", "err"); return; }
       btn.disabled = true;
       setStatus(i, "יוצר חשבון...", "info");
       try {
         // 1) יצירת חשבון Auth
-        var cred = await auth.createUserWithEmailAndPassword(u.email, pw);
+        var cred = await auth.createUserWithEmailAndPassword(email, pw);
         var uid = cred.user.uid;
         // 2) שמירת פרופיל באוסף החדש app_users (בלי סיסמה) — לא נוגע ב-pm_data
         await firestore.collection("app_users").doc(uid).set({
           uid: uid,
           name: u.name,
-          email: u.email,
+          email: email,
           role: u.role,
           permissions: DEFAULT_PERMS[u.role],
           createdAt: new Date().toISOString()
