@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>יצירת חשבונות Auth — כלי חד-פעמי</title>
+  <!-- אותה גרסת Firebase כמו index.html -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; color: #1e293b; padding: 24px; direction: rtl; }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 22px; margin-bottom: 6px; }
+    .sub { color: #64748b; font-size: 14px; margin-bottom: 20px; }
+    .note { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 14px 16px; font-size: 13px; line-height: 1.7; margin-bottom: 20px; }
+    .note b { color: #c2410c; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .who { flex: 1; min-width: 200px; }
+    .who .name { font-weight: 700; font-size: 15px; }
+    .who .meta { color: #64748b; font-size: 12px; margin-top: 2px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 4px; }
+    input[type=password], input[type=text] { padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; font-family: inherit; width: 180px; }
+    button { padding: 9px 16px; border: none; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
+    button:disabled { background: #94a3b8; cursor: default; }
+    .status { font-size: 13px; font-weight: 600; margin-top: 8px; min-height: 18px; }
+    .ok { color: #059669; }
+    .err { color: #dc2626; }
+    .info { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🔐 יצירת חשבונות Firebase Auth</h1>
+    <div class="sub">כלי חד-פעמי. לא נוגע במערכת הקיימת ולא במחירים/נתונים — רק יוצר חשבונות התחברות חדשים לצד הקיים.</div>
+
+    <div class="note">
+      <b>לפני שמתחילים — הפעל Email/Password ב-Firebase Console:</b><br>
+      Authentication ← Sign-in method ← Email/Password ← Enable ← Save.<br>
+      בלי זה יצירת החשבונות תיכשל עם שגיאה "operation-not-allowed".<br><br>
+      לכל משתמש: בחר <b>סיסמה ראשונית (לפחות 6 תווים)</b>, לחץ "צור חשבון", ותמסור לו אותה. הוא יוכל לשנות אותה בעתיד דרך "שכחתי סיסמה".<br>
+      אפשר להריץ שוב בבטחה — משתמש שכבר קיים פשוט ידווח "כבר קיים".
+    </div>
+
+    <div id="list"></div>
+  </div>
+
+  <script>
+    // === קונפיגורציית Firebase — זהה ל-index.html ===
+    firebase.initializeApp({
+      apiKey: "AIzaSyC6Jp2qFxTre1R4CenDnqF8qpanNVBVdvc",
+      authDomain: "aviv-electrical.firebaseapp.com",
+      projectId: "aviv-electrical",
+      storageBucket: "aviv-electrical.firebasestorage.app",
+      messagingSenderId: "1066028556697",
+      appId: "1:1066028556697:web:f9b413d1846d1ec5a1f308"
+    });
+    var auth = firebase.auth();
+    var firestore = firebase.firestore();
+
+    // הרשאות ברירת מחדל — הועתקו מ-index.html (DEFAULT_PERMS) כדי שהמבנה יהיה זהה
+    var DEFAULT_PERMS = {
+      admin: { pages: { dashboard: true, projects: true, worklog: true, attendance: true, invoices: true, reports: true, financial: true, cashflow: true, ai: true, users: true, workers: true, pricing: true, settings: true }, viewPrices: true, viewWorkerRates: true, editWorklog: true, deleteWorklog: true },
+      team_leader: { pages: { dashboard: false, projects: false, worklog: true, attendance: true, invoices: false, reports: false, financial: false, cashflow: false, ai: false, users: false, workers: false, pricing: false }, viewPrices: false, viewWorkerRates: false, editWorklog: true, deleteWorklog: false },
+      worker: { pages: { dashboard: false, projects: false, worklog: false, attendance: true, invoices: false, reports: false, financial: false, cashflow: false, ai: false, users: false, workers: false, pricing: false }, viewPrices: false, viewWorkerRates: false, editWorklog: false, deleteWorklog: false }
+    };
+    var ROLE_HE = { admin: "מנהל", team_leader: "ראש צוות", worker: "עובד" };
+    var ROLE_COLOR = { admin: "#7c3aed", team_leader: "#0284c7", worker: "#059669" };
+
+    // המשתמשים האמיתיים ליצירה
+    var USERS = [
+      { name: "אביב סבג",       email: "aviv.electrical@gmail.com", role: "admin" },
+      { name: "שירז מזרחי",      email: "shirazmhas@gmail.com",      role: "admin" },
+      { name: "תומס דני",        email: "thomasdani.td@gmail.com",   role: "team_leader" },
+      { name: "דוראל קלפרמן",    email: "dorelk31@gmail.com",        role: "team_leader" }
+    ];
+
+    // בניית הכרטיסים
+    var listEl = document.getElementById("list");
+    USERS.forEach(function (u, i) {
+      var card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML =
+        '<div class="row">' +
+          '<div class="who">' +
+            '<div class="name">' + u.name + ' <span class="badge" style="background:' + ROLE_COLOR[u.role] + '22;color:' + ROLE_COLOR[u.role] + '">' + ROLE_HE[u.role] + '</span></div>' +
+            '<div class="meta">' + u.email + '</div>' +
+          '</div>' +
+          '<input type="password" id="pw' + i + '" placeholder="סיסמה ראשונית (6+ תווים)" autocomplete="new-password"/>' +
+          '<button id="btn' + i + '">צור חשבון</button>' +
+        '</div>' +
+        '<div class="status" id="st' + i + '"></div>';
+      listEl.appendChild(card);
+      document.getElementById("btn" + i).addEventListener("click", function () { createAccount(i); });
+    });
+
+    function setStatus(i, msg, cls) {
+      var el = document.getElementById("st" + i);
+      el.textContent = msg;
+      el.className = "status " + (cls || "");
+    }
+
+    async function createAccount(i) {
+      var u = USERS[i];
+      var pw = document.getElementById("pw" + i).value;
+      var btn = document.getElementById("btn" + i);
+      if (!pw || pw.length < 6) { setStatus(i, "❌ הסיסמה חייבת להיות לפחות 6 תווים", "err"); return; }
+      btn.disabled = true;
+      setStatus(i, "יוצר חשבון...", "info");
+      try {
+        // 1) יצירת חשבון Auth
+        var cred = await auth.createUserWithEmailAndPassword(u.email, pw);
+        var uid = cred.user.uid;
+        // 2) שמירת פרופיל באוסף החדש app_users (בלי סיסמה) — לא נוגע ב-pm_data
+        await firestore.collection("app_users").doc(uid).set({
+          uid: uid,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          permissions: DEFAULT_PERMS[u.role],
+          createdAt: new Date().toISOString()
+        });
+        setStatus(i, "✅ נוצר בהצלחה (uid: " + uid.slice(0, 8) + "...). מסור למשתמש את הסיסמה.", "ok");
+      } catch (err) {
+        var code = err && err.code ? err.code : "";
+        if (code === "auth/email-already-in-use") {
+          setStatus(i, "ℹ️ החשבון כבר קיים — לא נוצר שוב (תקין).", "info");
+        } else if (code === "auth/operation-not-allowed") {
+          setStatus(i, "❌ צריך להפעיל Email/Password ב-Firebase Console (ראה הוראה למעלה).", "err");
+          btn.disabled = false;
+        } else if (code === "auth/weak-password") {
+          setStatus(i, "❌ סיסמה חלשה מדי — בחר 6 תווים לפחות.", "err");
+          btn.disabled = false;
+        } else {
+          setStatus(i, "❌ שגיאה: " + (err.message || code), "err");
+          btn.disabled = false;
+        }
+      } finally {
+        // יציאה מהחשבון שנוצר, כדי שיצירת המשתמש הבא לא תושפע
+        try { await auth.signOut(); } catch (e) {}
+      }
+    }
+  </script>
+</body>
+</html>
