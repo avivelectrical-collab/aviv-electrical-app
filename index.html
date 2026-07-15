@@ -1311,6 +1311,8 @@ function InvoicePreparation({ onSaved, editInvoice }) {
   const [deductionRows, setDeductionRows] = useState([]);
   const [deductibleExpenses, setDeductibleExpenses] = useState([]);
   const [editId, setEditId] = useState(null);
+  // חשבון בשיטה הישנה (% אישור על כמות התקופה בלבד) — חשבונות שנשמרו לפני המנגנון המצטבר נשארים בחישוב המקורי שלהם
+  const [legacyCalc, setLegacyCalc] = useState(false);
   // Load existing invoice for editing
   useEffect(() => {
     if (!editInvoice) return;
@@ -1321,10 +1323,12 @@ function InvoicePreparation({ onSaved, editInvoice }) {
     setInvoiceNum(editInvoice.invoiceNum||"");
     setInvoiceStatus(editInvoice.status||"draft");
     setIsFinal(!!editInvoice.isFinal);
+    // \u05D7\u05E9\u05D1\u05D5\u05DF \u05E9\u05E0\u05E9\u05DE\u05E8 \u05DC\u05E4\u05E0\u05D9 \u05D4\u05DE\u05E0\u05D2\u05E0\u05D5\u05DF \u05D4\u05DE\u05E6\u05D8\u05D1\u05E8 (\u05D0\u05D9\u05DF calcMethod) \u2014 \u05E0\u05E2\u05E8\u05DA \u05D1\u05E9\u05D9\u05D8\u05D4 \u05D4\u05D9\u05E9\u05E0\u05D4 \u05DB\u05D3\u05D9 \u05DC\u05D0 \u05DC\u05E9\u05E0\u05D5\u05EA \u05E1\u05DB\u05D5\u05DE\u05D9\u05DD \u05E7\u05D9\u05D9\u05DE\u05D9\u05DD (\u05DB\u05DC\u05DC \u05D4')
+    setLegacyCalc(editInvoice.calcMethod !== "cumulative");
     // Rows loaded from saved items
     if (editInvoice.items && editInvoice.items.length > 0) {
       setRows(editInvoice.items.map(function(it){
-        return { tenderItemId: it.tenderItemId, itemNum: it.itemNum, itemDesc: it.itemDesc, unit: it.unit, unitPrice: it.unitPrice, cat: it.cat||"\u05DB\u05DC\u05DC\u05D9", contractQty: it.contractQty||0, prevApprovedQty: it.prevApprovedQty||0, periodQty: it.periodQty, approvalPct: it.approvalPct };
+        return { tenderItemId: it.tenderItemId, itemNum: it.itemNum, itemDesc: it.itemDesc, unit: it.unit, unitPrice: it.unitPrice, cat: it.cat||"\u05DB\u05DC\u05DC\u05D9", contractQty: it.contractQty||0, prevApprovedQty: it.prevApprovedQty||0, periodQty: it.periodQty, cumExecQty: it.cumExecQty||0, approvalPct: it.approvalPct };
       }));
       setGenerated(true);
     }
@@ -1389,14 +1393,26 @@ function InvoicePreparation({ onSaved, editInvoice }) {
         periodQty[item.tenderItemId].qty += parseFloat(item.qty) || 0;
       });
     });
+    // ביצוע מצטבר: כל יומני העבודה של הפרויקט מתחילתו ועד תאריך סיום החשבון (לא רק התקופה הנוכחית)
+    const cumExec = {};
+    allLogs.filter((l) => l.projectId === projectId && l.date && l.date <= endDate).forEach((log) => {
+      (log.items || []).forEach((item) => {
+        cumExec[item.tenderItemId] = (cumExec[item.tenderItemId] || 0) + (parseFloat(item.qty) || 0);
+      });
+    });
     const allItemIds = /* @__PURE__ */ new Set([
       ...Object.keys(periodQty),
-      ...Object.keys(prevApprovedQty)
+      ...Object.keys(prevApprovedQty),
+      ...Object.keys(cumExec)
     ]);
     const newRows = [];
     allItemIds.forEach((tid) => {
       const ti = (project.tenderItems || []).find((t) => t.id === tid);
       const base = periodQty[tid] || { tenderItemId: tid, itemNum: ti?.num || "?", itemDesc: ti?.desc || "?", unit: ti?.unit || "", unitPrice: ti?.price || 0, qty: 0 };
+      const contractQty = ti?.qty || 0;
+      const cumExecQty = cumExec[tid] || 0;
+      // ברירת מחדל ל-% המצטבר: לפי הביצוע ביומני העבודה מתוך כמות החוזה; לסעיף ללא כמות חוזה — 100% מהביצוע המצטבר
+      const defaultPct = contractQty > 0 ? Math.round(cumExecQty / contractQty * 10000) / 100 : 100;
       newRows.push({
         tenderItemId: tid,
         itemNum: base.itemNum,
@@ -1404,10 +1420,11 @@ function InvoicePreparation({ onSaved, editInvoice }) {
         unit: base.unit,
         unitPrice: base.unitPrice,
         cat: ti?.cat || "\u05DB\u05DC\u05DC\u05D9",
-        contractQty: ti?.qty || 0,
+        contractQty,
         prevApprovedQty: prevApprovedQty[tid] || 0,
         periodQty: base.qty,
-        approvalPct: 100
+        cumExecQty,
+        approvalPct: defaultPct
         // default — supervisor will edit
       });
     });
@@ -1418,16 +1435,30 @@ function InvoicePreparation({ onSaved, editInvoice }) {
     var projExp = allExp.filter(function(e){ return e.projectId === projectId && e.forDeduction; });
     setDeductibleExpenses(projExp);
     setDeductionRows(projExp.map(function(e){ return { expenseId: e.id, desc: e.desc, totalAmount: e.amount, totalDeducted: e.totalDeducted||0, deductNow: 0 }; }));
+    // הפקה/רענון של חשבון נעשית תמיד בשיטה המצטברת החדשה (גם בעריכת חשבון ישן)
+    setLegacyCalc(false);
     setGenerated(true);
     setLoading(false);
   };
   const setApproval = (tid, pct) => {
-    const val = Math.min(100, Math.max(0, parseFloat(pct) || 0));
+    // בשיטה המצטברת מותר גם מעל 100% (חריגת כמויות מהחוזה); בשיטה הישנה נשמר החסם המקורי 0-100
+    const raw = Math.max(0, parseFloat(pct) || 0);
+    const val = legacyCalc ? Math.min(100, raw) : raw;
     setRows((prev) => prev.map((r) => r.tenderItemId === tid ? { ...r, approvalPct: val } : r));
   };
   const enrichRow = (r) => {
-    const approvedQty = r.periodQty * (r.approvalPct / 100);
-    const cumulativeQty = r.prevApprovedQty + approvedQty;
+    let approvedQty, cumulativeQty;
+    if (legacyCalc) {
+      // שיטה ישנה (חשבונות שנשמרו לפני המנגנון המצטבר): % האישור חל על כמות התקופה בלבד
+      approvedQty = r.periodQty * (r.approvalPct / 100);
+      cumulativeQty = r.prevApprovedQty + approvedQty;
+    } else {
+      // שיטה מצטברת: % האישור הוא מצטבר מכמות החוזה (לסעיף ללא כמות חוזה — מהביצוע המצטבר),
+      // והתשלום בחשבון זה = מאושר מצטבר פחות מה שאושר בחשבונות קודמים. יכול להיות שלילי (הקטנה בדיעבד)
+      const approvalBase = r.contractQty > 0 ? r.contractQty : (r.cumExecQty || 0);
+      cumulativeQty = approvalBase * (r.approvalPct / 100);
+      approvedQty = cumulativeQty - r.prevApprovedQty;
+    }
     const periodAmount = approvedQty * r.unitPrice;
     const cumulativeAmount = cumulativeQty * r.unitPrice;
     const contractValue = r.contractQty * r.unitPrice;
@@ -1435,6 +1466,8 @@ function InvoicePreparation({ onSaved, editInvoice }) {
     return { ...r, approvedQty, cumulativeQty, periodAmount, cumulativeAmount, contractValue, pctOfContract };
   };
   const enriched = rows.map(enrichRow);
+  // סעיפים עם "לתשלום עכשיו" שלילי — הקטנה בדיעבד. מותר, אך מוצג באזהרה בולטת
+  const negativeRows = enriched.filter((r) => r.periodAmount < -0.5);
   const subtotal = enriched.reduce((s, r) => s + r.periodAmount, 0);
   const retention = subtotal * ((project?.retentionPct || 0) / 100);
   const afterRetention = subtotal - retention;
@@ -1465,6 +1498,7 @@ function InvoicePreparation({ onSaved, editInvoice }) {
       contractQty: r.contractQty,
       prevApprovedQty: r.prevApprovedQty,
       periodQty: r.periodQty,
+      cumExecQty: r.cumExecQty || 0,
       approvalPct: r.approvalPct,
       approvedQty: r.approvedQty,
       cumulativeQty: r.cumulativeQty,
@@ -1489,6 +1523,8 @@ function InvoicePreparation({ onSaved, editInvoice }) {
       })(),
       status: invoiceStatus,
       isFinal,
+      // שיטת חישוב: "cumulative" = המנגנון המצטבר; null = חשבון בשיטה הישנה (% על כמות תקופה)
+      calcMethod: legacyCalc ? null : "cumulative",
       subtotal,
       afterDeductions: afterDeductions || 0,
       retention,
@@ -1525,11 +1561,11 @@ function InvoicePreparation({ onSaved, editInvoice }) {
   };
   const TH = ({ children, w }) => /* @__PURE__ */ React.createElement("th", { style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", minWidth: w || "auto", borderBottom: "2px solid #e5e7eb" } }, children);
   const TD = ({ children, bold, color, bg, center, mono }) => /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", fontWeight: bold ? 700 : 400, color: color || "#374151", background: bg || "transparent", textAlign: center ? "center" : "right", fontFamily: mono ? "monospace" : "inherit", fontSize: 13 } }, children);
-  return /* @__PURE__ */ React.createElement("div", null, saved && /* @__PURE__ */ React.createElement(Alert, { type: "success" }, "\u2705 \u05D4\u05D7\u05E9\u05D1\u05D5\u05DF \u05E0\u05E9\u05DE\u05E8 \u05D1\u05D4\u05E6\u05DC\u05D7\u05D4!"), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 12, alignItems: "end" } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8" }, /* @__PURE__ */ React.createElement(Select, { value: projectId, onChange: (e) => setProjectId(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05D1\u05D7\u05E8 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u2014"), projects.map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.name)))), /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05EA\u05D0\u05E8\u05D9\u05DA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D3 \u05EA\u05D0\u05E8\u05D9\u05DA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value) })), /* @__PURE__ */ React.createElement(Btn, { onClick: buildSummary, disabled: !projectId || !startDate || !endDate || loading, style: { marginTop: 20 } }, loading ? "\u05D8\u05D5\u05E2\u05DF..." : "\u{1F4CA} \u05D4\u05E4\u05E7 \u05D7\u05E9\u05D1\u05D5\u05DF"))), generated && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#f0f9ff", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#0369a1", border: "1px solid #bae6fd" } }, "\u{1F4C5} \u05EA\u05E7\u05D5\u05E4\u05D4: ", /* @__PURE__ */ React.createElement("strong", null, startDate), " \u2013 ", /* @__PURE__ */ React.createElement("strong", null, endDate), " \xB7 ", /* @__PURE__ */ React.createElement("strong", null, logCount), " \u05D9\u05D5\u05DE\u05E0\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4"), /* @__PURE__ */ React.createElement("div", { style: { background: "#fdf4ff", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#7c3aed", border: "1px solid #e9d5ff" } }, "\u{1F4CB} \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD: ", /* @__PURE__ */ React.createElement("strong", null, prevInvoices.length)), /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#c2410c", border: "1px solid #fed7aa" } }, "\u270F\uFE0F \u05D4\u05D6\u05DF % \u05D0\u05D9\u05E9\u05D5\u05E8 \u05E4\u05D9\u05E7\u05D5\u05D7 \u05DC\u05DB\u05DC \u05E1\u05E2\u05D9\u05E3 \u2014 \u05D1\u05E8\u05D9\u05E8\u05EA \u05DE\u05D7\u05D3\u05DC 100%")), enriched.length === 0 ? /* @__PURE__ */ React.createElement(Alert, { type: "error" }, "\u05DC\u05D0 \u05E0\u05DE\u05E6\u05D0\u05D5 \u05E2\u05D1\u05D5\u05D3\u05D5\u05EA \u05D1\u05EA\u05E7\u05D5\u05E4\u05D4 \u05D6\u05D5 \u05D5\u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD.") : cats.map((cat) => {
+  return /* @__PURE__ */ React.createElement("div", null, saved && /* @__PURE__ */ React.createElement(Alert, { type: "success" }, "\u2705 \u05D4\u05D7\u05E9\u05D1\u05D5\u05DF \u05E0\u05E9\u05DE\u05E8 \u05D1\u05D4\u05E6\u05DC\u05D7\u05D4!"), /* @__PURE__ */ React.createElement(Card, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 12, alignItems: "end" } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8" }, /* @__PURE__ */ React.createElement(Select, { value: projectId, onChange: (e) => setProjectId(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 \u05D1\u05D7\u05E8 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u2014"), projects.map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.id }, p.name)))), /* @__PURE__ */ React.createElement(Field, { label: "\u05DE\u05EA\u05D0\u05E8\u05D9\u05DA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: startDate, onChange: (e) => setStartDate(e.target.value) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D3 \u05EA\u05D0\u05E8\u05D9\u05DA" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: endDate, onChange: (e) => setEndDate(e.target.value) })), /* @__PURE__ */ React.createElement(Btn, { onClick: buildSummary, disabled: !projectId || !startDate || !endDate || loading, style: { marginTop: 20 } }, loading ? "\u05D8\u05D5\u05E2\u05DF..." : "\u{1F4CA} \u05D4\u05E4\u05E7 \u05D7\u05E9\u05D1\u05D5\u05DF"))), generated && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#f0f9ff", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#0369a1", border: "1px solid #bae6fd" } }, "\u{1F4C5} \u05EA\u05E7\u05D5\u05E4\u05D4: ", /* @__PURE__ */ React.createElement("strong", null, startDate), " \u2013 ", /* @__PURE__ */ React.createElement("strong", null, endDate), " \xB7 ", /* @__PURE__ */ React.createElement("strong", null, logCount), " \u05D9\u05D5\u05DE\u05E0\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4"), /* @__PURE__ */ React.createElement("div", { style: { background: "#fdf4ff", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#7c3aed", border: "1px solid #e9d5ff" } }, "\u{1F4CB} \u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD: ", /* @__PURE__ */ React.createElement("strong", null, prevInvoices.length)), /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#c2410c", border: "1px solid #fed7aa" } }, legacyCalc ? "\u270F\uFE0F \u05D7\u05E9\u05D1\u05D5\u05DF \u05D1\u05E9\u05D9\u05D8\u05D4 \u05D4\u05D9\u05E9\u05E0\u05D4 \u2014 % \u05D0\u05D9\u05E9\u05D5\u05E8 \u05E2\u05DC \u05DB\u05DE\u05D5\u05EA \u05D4\u05EA\u05E7\u05D5\u05E4\u05D4" : "\u270F\uFE0F % \u05DE\u05D0\u05D5\u05E9\u05E8 \u05DE\u05E6\u05D8\u05D1\u05E8 \u05DE\u05D4\u05D7\u05D5\u05D6\u05D4 \u05DC\u05DB\u05DC \u05E1\u05E2\u05D9\u05E3 \u2014 \u05D1\u05E8\u05D9\u05E8\u05EA \u05DE\u05D7\u05D3\u05DC \u05DC\u05E4\u05D9 \u05D4\u05D1\u05D9\u05E6\u05D5\u05E2 \u05D1\u05D9\u05D5\u05DE\u05E0\u05D9 \u05D4\u05E2\u05D1\u05D5\u05D3\u05D4")), negativeRows.length > 0 && /* @__PURE__ */ React.createElement(Alert, { type: "error" }, "\u26A0\uFE0F \u05D0\u05D6\u05D4\u05E8\u05D4: \u05D1-" + negativeRows.length + " \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05D4\u05DE\u05D0\u05D5\u05E9\u05E8 \u05D4\u05DE\u05E6\u05D8\u05D1\u05E8 \u05E0\u05DE\u05D5\u05DA \u05DE\u05DE\u05D4 \u05E9\u05E9\u05D5\u05DC\u05DD \u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD \u2014 \u05D4\u05D7\u05E9\u05D1\u05D5\u05DF \u05DB\u05D5\u05DC\u05DC \u05D4\u05E7\u05D8\u05E0\u05D4 (\u05E1\u05DB\u05D5\u05DD \u05E9\u05DC\u05D9\u05DC\u05D9). \u05D5\u05D3\u05D0 \u05E9\u05D4\u05D4\u05E7\u05D8\u05E0\u05D4 \u05DE\u05DB\u05D5\u05D5\u05E0\u05EA \u05DC\u05E4\u05E0\u05D9 \u05E9\u05DE\u05D9\u05E8\u05D4."), enriched.length === 0 ? /* @__PURE__ */ React.createElement(Alert, { type: "error" }, "\u05DC\u05D0 \u05E0\u05DE\u05E6\u05D0\u05D5 \u05E2\u05D1\u05D5\u05D3\u05D5\u05EA \u05D1\u05EA\u05E7\u05D5\u05E4\u05D4 \u05D6\u05D5 \u05D5\u05D1\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD.") : cats.map((cat) => {
     const catRows = enriched.filter((r) => r.cat === cat);
     const catPeriod = catRows.reduce((s, r) => s + r.periodAmount, 0);
     const catCumulative = catRows.reduce((s, r) => s + r.cumulativeAmount, 0);
-    return /* @__PURE__ */ React.createElement(Card, { key: cat, style: { marginBottom: 14, padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F4C1} ", cat), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#2563eb" } }, "\u05EA\u05E7\u05D5\u05E4\u05D4: ", /* @__PURE__ */ React.createElement("strong", null, "\u20AA", fmt(catPeriod))), /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed" } }, "\u05DE\u05E6\u05D8\u05D1\u05E8: ", /* @__PURE__ */ React.createElement("strong", null, "\u20AA", fmt(catCumulative))))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement(TH, { w: 65 }, "\u05E1\u05E2\u05D9\u05E3"), /* @__PURE__ */ React.createElement(TH, { w: 160 }, "\u05EA\u05D9\u05D0\u05D5\u05E8"), /* @__PURE__ */ React.createElement(TH, { w: 40 }, "\u05D9\u05D7'"), /* @__PURE__ */ React.createElement(TH, { w: 75 }, "\u05DB\u05DE\u05D5\u05EA \u05D7\u05D5\u05D6\u05D4"), /* @__PURE__ */ React.createElement(TH, { w: 80 }, "\u05DB\u05DE\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05EA", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD)")), /* @__PURE__ */ React.createElement(TH, { w: 80 }, "\u05DB\u05DE\u05D5\u05EA \u05EA\u05E7\u05D5\u05E4\u05D4", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05D9\u05D5\u05DE\u05DF \u05E2\u05D1\u05D5\u05D3\u05D4)")), /* @__PURE__ */ React.createElement(TH, { w: 90 }, "% \u05D0\u05D9\u05E9\u05D5\u05E8", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "\u05E4\u05D9\u05E7\u05D5\u05D7 \u270F\uFE0F")), /* @__PURE__ */ React.createElement(TH, { w: 80 }, "\u05DB\u05DE\u05D5\u05EA", /* @__PURE__ */ React.createElement("br", null), "\u05DE\u05D0\u05D5\u05E9\u05E8\u05EA"), /* @__PURE__ */ React.createElement(TH, { w: 85 }, "\u05DB\u05DE\u05D5\u05EA \u05DE\u05E6\u05D8\u05D1\u05E8\u05EA", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05E7\u05D5\u05D3\u05DD+\u05DE\u05D0\u05D5\u05E9\u05E8)")), /* @__PURE__ */ React.createElement(TH, { w: 75 }, "\u05DE\u05D7\u05D9\u05E8 \u05D9\u05D7'"), /* @__PURE__ */ React.createElement(TH, { w: 95 }, "\u{1F4B0} \u05E1\u05DB\u05D5\u05DD \u05EA\u05E7\u05D5\u05E4\u05D4"), /* @__PURE__ */ React.createElement(TH, { w: 100 }, "\u{1F4CA} \u05DE\u05E6\u05D8\u05D1\u05E8"), /* @__PURE__ */ React.createElement(TH, { w: 70 }, "% \u05DE\u05D7\u05D5\u05D6\u05D4"))), /* @__PURE__ */ React.createElement("tbody", null, catRows.map((r) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement(Card, { key: cat, style: { marginBottom: 14, padding: 0, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F4C1} ", cat), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { color: "#2563eb" } }, "\u05EA\u05E7\u05D5\u05E4\u05D4: ", /* @__PURE__ */ React.createElement("strong", null, "\u20AA", fmt(catPeriod))), /* @__PURE__ */ React.createElement("span", { style: { color: "#7c3aed" } }, "\u05DE\u05E6\u05D8\u05D1\u05E8: ", /* @__PURE__ */ React.createElement("strong", null, "\u20AA", fmt(catCumulative))))), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement(TH, { w: 65 }, "\u05E1\u05E2\u05D9\u05E3"), /* @__PURE__ */ React.createElement(TH, { w: 160 }, "\u05EA\u05D9\u05D0\u05D5\u05E8"), /* @__PURE__ */ React.createElement(TH, { w: 40 }, "\u05D9\u05D7'"), /* @__PURE__ */ React.createElement(TH, { w: 75 }, "\u05DB\u05DE\u05D5\u05EA \u05D7\u05D5\u05D6\u05D4"), legacyCalc ? /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement(TH, { w: 80 }, "\u05DB\u05DE\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05EA", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD)")), React.createElement(TH, { w: 80 }, "\u05DB\u05DE\u05D5\u05EA \u05EA\u05E7\u05D5\u05E4\u05D4", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05D9\u05D5\u05DE\u05DF \u05E2\u05D1\u05D5\u05D3\u05D4)"))) : /* @__PURE__ */ React.createElement(TH, { w: 85 }, "\u05D1\u05D9\u05E6\u05D5\u05E2 \u05DE\u05E6\u05D8\u05D1\u05E8", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05D9\u05D5\u05DE\u05E0\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4 \u05E2\u05D3 \u05EA\u05D0\u05E8\u05D9\u05DA \u05D4\u05E1\u05D9\u05D5\u05DD)")), /* @__PURE__ */ React.createElement(TH, { w: 90 }, legacyCalc ? "% \u05D0\u05D9\u05E9\u05D5\u05E8" : "% \u05DE\u05D0\u05D5\u05E9\u05E8 \u05DE\u05E6\u05D8\u05D1\u05E8", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, legacyCalc ? "\u05E4\u05D9\u05E7\u05D5\u05D7 \u270F\uFE0F" : "\u05DE\u05D4\u05D7\u05D5\u05D6\u05D4 \u00B7 \u05E4\u05D9\u05E7\u05D5\u05D7 \u270F\uFE0F")), legacyCalc ? /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement(TH, { w: 80 }, "\u05DB\u05DE\u05D5\u05EA", React.createElement("br", null), "\u05DE\u05D0\u05D5\u05E9\u05E8\u05EA"), React.createElement(TH, { w: 85 }, "\u05DB\u05DE\u05D5\u05EA \u05DE\u05E6\u05D8\u05D1\u05E8\u05EA", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05E7\u05D5\u05D3\u05DD+\u05DE\u05D0\u05D5\u05E9\u05E8)"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement(TH, { w: 85 }, "\u05DE\u05D0\u05D5\u05E9\u05E8 \u05DE\u05E6\u05D8\u05D1\u05E8", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05DB\u05DE\u05D5\u05EA)")), React.createElement(TH, { w: 80 }, "\u05E9\u05D5\u05DC\u05DD \u05E7\u05D5\u05D3\u05DD", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05D7\u05E9\u05D1\u05D5\u05E0\u05D5\u05EA \u05E7\u05D5\u05D3\u05DE\u05D9\u05DD)")), React.createElement(TH, { w: 85 }, "\u05DC\u05EA\u05E9\u05DC\u05D5\u05DD \u05E2\u05DB\u05E9\u05D9\u05D5", React.createElement("br", null), React.createElement("span", { style: { fontWeight: 400, color: "#9ca3af", fontSize: 10 } }, "(\u05DB\u05DE\u05D5\u05EA)"))), /* @__PURE__ */ React.createElement(TH, { w: 75 }, "\u05DE\u05D7\u05D9\u05E8 \u05D9\u05D7'"), /* @__PURE__ */ React.createElement(TH, { w: 95 }, legacyCalc ? "\u{1F4B0} \u05E1\u05DB\u05D5\u05DD \u05EA\u05E7\u05D5\u05E4\u05D4" : "\u{1F4B0} \u05DC\u05EA\u05E9\u05DC\u05D5\u05DD \u05E2\u05DB\u05E9\u05D9\u05D5"), /* @__PURE__ */ React.createElement(TH, { w: 100 }, "\u{1F4CA} \u05DE\u05E6\u05D8\u05D1\u05E8"), /* @__PURE__ */ React.createElement(TH, { w: 70 }, "% \u05DE\u05D7\u05D5\u05D6\u05D4"))), /* @__PURE__ */ React.createElement("tbody", null, catRows.map((r) => /* @__PURE__ */ React.createElement(
       "tr",
       {
         key: r.tenderItemId,
@@ -1541,29 +1577,27 @@ function InvoicePreparation({ onSaved, editInvoice }) {
       /* @__PURE__ */ React.createElement(TD, null, r.itemDesc),
       /* @__PURE__ */ React.createElement(TD, { color: "#6b7280" }, r.unit),
       /* @__PURE__ */ React.createElement(TD, { center: true, color: "#6b7280" }, r.contractQty.toLocaleString()),
-      /* @__PURE__ */ React.createElement(TD, { center: true, color: "#7c3aed", bold: true }, r.prevApprovedQty > 0 ? r.prevApprovedQty.toLocaleString() : "\u2014"),
-      /* @__PURE__ */ React.createElement(TD, { center: true, bold: true, color: r.periodQty > 0 ? "#111" : "#9ca3af" }, r.periodQty > 0 ? r.periodQty.toLocaleString() : "\u2014"),
+      legacyCalc ? /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement(TD, { center: true, color: "#7c3aed", bold: true }, r.prevApprovedQty > 0 ? r.prevApprovedQty.toLocaleString() : "\u2014"), React.createElement(TD, { center: true, bold: true, color: r.periodQty > 0 ? "#111" : "#9ca3af" }, r.periodQty > 0 ? r.periodQty.toLocaleString() : "\u2014")) : /* @__PURE__ */ React.createElement(TD, { center: true, bold: true, color: (r.cumExecQty || 0) > 0 ? "#0369a1" : "#9ca3af" }, (r.cumExecQty || 0) > 0 ? r.cumExecQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014"),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "5px 8px", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4, justifyContent: "center" } }, /* @__PURE__ */ React.createElement(
         "input",
         {
           type: "number",
           min: 0,
-          max: 100,
-          step: 1,
+          max: legacyCalc ? 100 : void 0,
+          step: "any",
           value: r.approvalPct,
           onChange: (e) => setApproval(r.tenderItemId, e.target.value),
           style: { width: 54, textAlign: "center", padding: "4px 6px", border: "2px solid #fb923c", borderRadius: 6, fontSize: 13, fontWeight: 700, color: "#c2410c", fontFamily: "inherit", outline: "none" }
         }
-      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#9ca3af" } }, "%")), r.approvalPct < 100 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: "#dc2626", marginTop: 2 } }, "\u05D7\u05DC\u05E7\u05D9")),
-      /* @__PURE__ */ React.createElement(TD, { center: true, bold: true, color: "#059669" }, r.approvedQty > 0 ? r.approvedQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014"),
-      /* @__PURE__ */ React.createElement(TD, { center: true, bold: true, color: "#7c3aed" }, r.cumulativeQty > 0 ? r.cumulativeQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014"),
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "#9ca3af" } }, "%")), legacyCalc && r.approvalPct < 100 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: "#dc2626", marginTop: 2 } }, "\u05D7\u05DC\u05E7\u05D9"), !legacyCalc && r.approvalPct > 100 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: "#d97706", marginTop: 2 } }, "\u05DE\u05E2\u05DC \u05D4\u05D7\u05D5\u05D6\u05D4"), !legacyCalc && !(r.contractQty > 0) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 10, color: "#6b7280", marginTop: 2 } }, "% \u05DE\u05D4\u05D1\u05D9\u05E6\u05D5\u05E2")),
+      legacyCalc ? /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement(TD, { center: true, bold: true, color: "#059669" }, r.approvedQty > 0 ? r.approvedQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014"), React.createElement(TD, { center: true, bold: true, color: "#7c3aed" }, r.cumulativeQty > 0 ? r.cumulativeQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014")) : /* @__PURE__ */ React.createElement(React.Fragment, null, React.createElement(TD, { center: true, bold: true, color: "#7c3aed" }, r.cumulativeQty > 0 ? r.cumulativeQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014"), React.createElement(TD, { center: true, color: "#6b7280" }, r.prevApprovedQty > 0 ? r.prevApprovedQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014"), React.createElement(TD, { center: true, bold: true, color: r.approvedQty < 0 ? "#dc2626" : "#059669" }, r.approvedQty !== 0 ? r.approvedQty.toLocaleString(void 0, { maximumFractionDigits: 2 }) : "\u2014")),
       /* @__PURE__ */ React.createElement(TD, { center: true }, "\u20AA", r.unitPrice.toLocaleString()),
-      /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "right", fontWeight: 800, color: "#059669", background: "#f0fdf4", borderRight: "2px solid #bbf7d0" } }, r.periodAmount > 0 ? `\u20AA${fmt(r.periodAmount)}` : "\u2014"),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "right", fontWeight: 800, color: r.periodAmount < 0 ? "#dc2626" : "#059669", background: r.periodAmount < 0 ? "#fef2f2" : "#f0fdf4", borderRight: "2px solid " + (r.periodAmount < 0 ? "#fecaca" : "#bbf7d0") } }, r.periodAmount > 0 ? `\u20AA${fmt(r.periodAmount)}` : r.periodAmount < 0 ? `\u2212\u20AA${fmt(Math.abs(r.periodAmount))}` : "\u2014"),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "right", fontWeight: 700, color: "#7c3aed", background: "#faf5ff" } }, r.cumulativeAmount > 0 ? `\u20AA${fmt(r.cumulativeAmount)}` : "\u2014"),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: r.pctOfContract >= 100 ? "#dc2626" : r.pctOfContract >= 75 ? "#d97706" : "#374151" } }, r.pctOfContract.toFixed(1), "%"), /* @__PURE__ */ React.createElement("div", { style: { height: 4, background: "#e5e7eb", borderRadius: 2, marginTop: 2, width: 50 } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${Math.min(100, r.pctOfContract)}%`, background: r.pctOfContract >= 100 ? "#dc2626" : r.pctOfContract >= 75 ? "#d97706" : "#059669", borderRadius: 2 } })))
     ))), /* @__PURE__ */ React.createElement("tfoot", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "#eff6ff", borderTop: "2px solid #bfdbfe" } }, /* @__PURE__ */ React.createElement("td", { colSpan: 10, style: { padding: "9px 8px", fontWeight: 700, color: "#1e40af", fontSize: 13 } }, '\u05E1\u05D4"\u05DB ', cat), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 8px", fontWeight: 800, color: "#059669", fontSize: 14, background: "#dcfce7" } }, "\u20AA", fmt(catPeriod)), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 8px", fontWeight: 800, color: "#7c3aed", fontSize: 14, background: "#ede9fe" } }, "\u20AA", fmt(catCumulative)), /* @__PURE__ */ React.createElement("td", null))))));
   }), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 } }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F9EE} \u05D7\u05D9\u05E9\u05D5\u05D1 \u05D7\u05E9\u05D1\u05D5\u05DF (\u05EA\u05E7\u05D5\u05E4\u05D4 \u05E0\u05D5\u05DB\u05D7\u05D9\u05EA)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, [
-    { label: '\u05E1\u05DB\u05D5\u05DD \u05EA\u05E7\u05D5\u05E4\u05D4 (\u05DE\u05D0\u05D5\u05E9\u05E8 \u05E2"\u05D9 \u05E4\u05D9\u05E7\u05D5\u05D7)', value: subtotal, color: "#374151" },
+    { label: legacyCalc ? '\u05E1\u05DB\u05D5\u05DD \u05EA\u05E7\u05D5\u05E4\u05D4 (\u05DE\u05D0\u05D5\u05E9\u05E8 \u05E2"\u05D9 \u05E4\u05D9\u05E7\u05D5\u05D7)' : '\u05DC\u05EA\u05E9\u05DC\u05D5\u05DD \u05D1\u05D7\u05E9\u05D1\u05D5\u05DF \u05D6\u05D4 (\u05DE\u05D0\u05D5\u05E9\u05E8 \u05E2"\u05D9 \u05E4\u05D9\u05E7\u05D5\u05D7)', value: subtotal, color: "#374151" },
     { label: `\u05E2\u05D9\u05DB\u05D1\u05D5\u05DF (${project?.retentionPct || 0}%)`, value: -retention, color: "#dc2626" },
     { label: "\u05DC\u05D0\u05D7\u05E8 \u05E2\u05D9\u05DB\u05D1\u05D5\u05DF", value: afterRetention, color: "#374151" },
     totalDeductionsNow > 0 ? { label: "\u05E7\u05D9\u05D6\u05D5\u05D6 \u05D7\u05D5\u05DE\u05E8\u05D9\u05DD", value: -totalDeductionsNow, color: "#d97706" } : null,
