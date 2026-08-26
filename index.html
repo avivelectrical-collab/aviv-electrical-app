@@ -623,14 +623,201 @@ function ProjectsList({ onSelect, user }) {
       load();
     }, style: { position: "absolute", top: 8, left: 8, zIndex: 2, border: "none", background: "#fee2e2", borderRadius: 4, cursor: "pointer", color: "#dc2626", fontSize: 12, padding: "2px 7px", fontWeight: 700 } }, "\u{1F5D1}\uFE0F"),
     /* @__PURE__ */ React.createElement("button", { onClick: () => onSelect(p), style: { width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "right", padding: "14px 16px", fontFamily: "inherit", display: "block" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: "#111" } }, p.name), /* @__PURE__ */ React.createElement(Badge, { color: STATUS_COLOR[p.status] }, STATUS_HE[p.status])), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#6b7280", marginBottom: 8 } }, "\u{1F464} ", p.clientName), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#6b7280", small: true }, p.tenderItems?.length || 0, " \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD"), /* @__PURE__ */ React.createElement(Badge, { color: "#059669", small: true }, p.workAreas?.length || 0, " \u05D0\u05D6\u05D5\u05E8\u05D9\u05DD"), /* @__PURE__ */ React.createElement(Badge, { color: "#d97706", small: true }, '\u05DE\u05E2"\u05DE ', p.vatPct, "%")))
-  ), filtered.length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", gridColumn: "1/-1", textAlign: "center", padding: 40 } }, filterStatus === "all" ? "\u05D0\u05D9\u05DF \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8\u05D9\u05DD" : "\u05D0\u05D9\u05DF \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8\u05D9\u05DD \u05D1\u05E1\u05D8\u05D8\u05D5\u05E1 \u05D6\u05D4")), showForm && /* @__PURE__ */ React.createElement(ProjectForm, { onClose: () => setShowForm(false), onSave: async (p) => {
+  ), filtered.length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", gridColumn: "1/-1", textAlign: "center", padding: 40 } }, filterStatus === "all" ? "\u05D0\u05D9\u05DF \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8\u05D9\u05DD" : "\u05D0\u05D9\u05DF \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8\u05D9\u05DD \u05D1\u05E1\u05D8\u05D8\u05D5\u05E1 \u05D6\u05D4")), showForm && /* @__PURE__ */ React.createElement(ProjectForm, { user, onClose: () => setShowForm(false), onSave: async (p) => {
     const list = await db.get("projects") || [];
     await db.set("projects", [...list, p]);
     await load();
     setShowForm(false);
   } })));
 }
-function ProjectForm({ project, onSave, onClose }) {
+// === עריכת סעיפי חוזה (tenderItems) ===
+// בודק כמה יומני עבודה וכמה חשבונות כבר משתמשים בסעיף — לצורך אזהרה לפני שינוי/מחיקה
+async function getItemUsage(projectId, itemId) {
+  const [logsRaw, invRaw] = await Promise.all([db.get("worklogs"), db.get("invoices")]);
+  const logs = (Array.isArray(logsRaw) ? logsRaw : []).filter((l) => l.projectId === projectId);
+  const invoices = (Array.isArray(invRaw) ? invRaw : []).filter((i) => i.projectId === projectId);
+  let logCount = 0, loggedQty = 0;
+  logs.forEach((l) => {
+    const hits = (l.items || []).filter((it) => it.tenderItemId === itemId);
+    if (hits.length) {
+      logCount++;
+      loggedQty += hits.reduce((s, it) => s + (parseFloat(it.qty) || 0), 0);
+    }
+  });
+  let invoiceCount = 0, invoicedQty = 0;
+  const invoiceNums = [];
+  invoices.forEach((inv) => {
+    const hits = (inv.items || []).filter((it) => it.tenderItemId === itemId);
+    if (hits.length) {
+      invoiceCount++;
+      invoicedQty += hits.reduce((s, it) => s + (parseFloat(it.approvedQty) || 0), 0);
+      invoiceNums.push(inv.invoiceNum || "טיוטה");
+    }
+  });
+  return { logCount, loggedQty, invoiceCount, invoicedQty, invoiceNums };
+}
+// מסנכרן את הסנפשוט של הסעיף בכל יומני העבודה של הפרויקט: מחיר, מס' סעיף, תיאור, יחידה.
+// הכמות ביומן לא נגעת — היא רישום של מה שבוצע בפועל באותו יום, לא נתון חוזי.
+// חשבונות שנשמרו לא נגעים — הם קפואים עם ה-unitPrice/approvedQty שלהם.
+async function syncWorklogsForItem(projectId, item) {
+  const raw = await db.get("worklogs");
+  const logs = Array.isArray(raw) ? raw : [];
+  let changed = 0;
+  const updated = logs.map((l) => {
+    if (l.projectId !== projectId) return l;
+    let touched = false;
+    const items = (l.items || []).map((it) => {
+      if (it.tenderItemId !== item.id) return it;
+      touched = true;
+      return { ...it, itemNum: item.num, itemDesc: item.desc, unit: item.unit, unitPrice: item.price };
+    });
+    if (!touched) return l;
+    changed++;
+    return { ...l, items };
+  });
+  if (changed > 0) await db.set("worklogs", updated);
+  return changed;
+}
+// אישור מחיקת סעיף — אזהרה מדורגת לפי מידת השימוש בו. מחזיר true אם אושר.
+async function confirmDeleteTenderItem(projectId, item) {
+  const u = await getItemUsage(projectId, item.id);
+  if (u.invoiceCount > 0) {
+    return confirm(
+      '⚠️ הסעיף "' + item.num + " — " + item.desc + '" כבר חויב ב-' + u.invoiceCount + " חשבונות (" + u.invoiceNums.join(", ") + ").\n\n" +
+      "החשבונות שנשמרו לא ישתנו, אבל הם יאבדו את הקישור לסעיף בחוזה — חישובי המצטבר וההשוואה לחוזה בחשבונות הבאים ייפגעו.\n" +
+      "הסעיף מופיע גם ב-" + u.logCount + " יומני עבודה.\n\nלמחוק בכל זאת?"
+    );
+  }
+  if (u.logCount > 0) {
+    return confirm(
+      'הסעיף "' + item.num + " — " + item.desc + '" מופיע ב-' + u.logCount + " יומני עבודה (" +
+      u.loggedQty.toLocaleString() + " " + (item.unit || "") + " שבוצעו).\n\nלמחוק אותו?"
+    );
+  }
+  return confirm('למחוק את הסעיף "' + item.num + " — " + item.desc + '"?');
+}
+// מודאל עריכת סעיף — משותף ל-ProjectForm ול-ProjectDetail (ולידציה אחת לשניהם)
+function TenderItemEditModal({ item, projectId, allItems, user, onSave, onClose }) {
+  const [form, setForm] = useState({
+    num: item.num || "",
+    desc: item.desc || "",
+    unit: item.unit || "",
+    qty: item.qty === void 0 || item.qty === null ? "" : String(item.qty),
+    price: item.price === void 0 || item.price === null ? "" : String(item.price),
+    cat: item.cat || ""
+  });
+  const [usage, setUsage] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const u = await getItemUsage(projectId, item.id);
+      if (alive) setUsage(u);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, item.id]);
+  const doSave = () => {
+    if (!form.num.trim() || !form.desc.trim() || !form.unit.trim()) {
+      setErr("מס' סעיף, תיאור ויחידה הם שדות חובה");
+      return;
+    }
+    const price = parseFloat(form.price);
+    const qty = parseFloat(form.qty) || 0;
+    if (isNaN(price) || price < 0) {
+      setErr("מחיר חייב להיות מספר לא שלילי");
+      return;
+    }
+    if (qty < 0) {
+      setErr("כמות לא יכולה להיות שלילית");
+      return;
+    }
+    const dup = (allItems || []).some((x) => x.id !== item.id && (x.num || "").trim() === form.num.trim());
+    if (dup && !confirm("קיים כבר סעיף אחר עם מס' " + form.num.trim() + ". להמשיך בכל זאת?")) return;
+    const priceChanged = price !== (item.price || 0);
+    const qtyChanged = qty !== (item.qty || 0);
+    // שינוי שמחייב עדכון הסנפשוט ביומני העבודה
+    const snapChanged = priceChanged || form.num.trim() !== (item.num || "") || form.desc.trim() !== (item.desc || "") || form.unit.trim() !== (item.unit || "");
+    const u = usage || { logCount: 0, invoiceCount: 0, invoiceNums: [], loggedQty: 0 };
+    if ((priceChanged || qtyChanged) && u.invoiceCount > 0) {
+      const ok = confirm(
+        "סעיף זה כבר חויב בחשבונות. שינוי המחיר ישפיע רטרואקטיבית על חישובי מצטבר ורווחיות. להמשיך?\n\n" +
+        "מופיע ב-" + u.invoiceCount + " חשבונות (" + u.invoiceNums.join(", ") + ") וב-" + u.logCount + " יומני עבודה.\n" +
+        (snapChanged ? "הפרטים יעודכנו גם ב-" + u.logCount + " יומני העבודה. חשבונות שנשמרו לא ישתנו — ההפרש ייגבה בחשבון המצטבר הבא." : "")
+      );
+      if (!ok) return;
+    } else if (snapChanged && u.logCount > 0) {
+      if (!confirm("הסעיף מופיע ב-" + u.logCount + " יומני עבודה. המחיר והפרטים יעודכנו גם בהם. להמשיך?")) return;
+    }
+    const updated = {
+      ...item,
+      num: form.num.trim(),
+      desc: form.desc.trim(),
+      unit: form.unit.trim(),
+      qty,
+      price,
+      cat: form.cat.trim() || "כללי"
+    };
+    // תיעוד שינויי מחיר — כדי שיהיה ברור למה חשבון עתידי השתנה
+    if (priceChanged) {
+      updated.priceHistory = [
+        ...item.priceHistory || [],
+        {
+          date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+          oldPrice: item.price || 0,
+          newPrice: price,
+          userId: user?.id || "",
+          userName: user?.name || ""
+        }
+      ];
+    }
+    onSave(updated, { priceChanged, qtyChanged, syncLogs: snapChanged });
+  };
+  const usageBanner = usage && (usage.invoiceCount > 0 || usage.logCount > 0) ? /* @__PURE__ */ React.createElement(
+    "div",
+    { style: { background: usage.invoiceCount > 0 ? "#fef3c7" : "#f1f5f9", border: "1px solid " + (usage.invoiceCount > 0 ? "#fcd34d" : "#e2e8f0"), borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13, color: "#374151", lineHeight: 1.6 } },
+    usage.invoiceCount > 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#92400e", marginBottom: 4 } }, "⚠️ הסעיף כבר חויב בחשבונות") : null,
+    usage.invoiceCount > 0 ? /* @__PURE__ */ React.createElement("div", null, "חשבונות: ", usage.invoiceCount, " (", usage.invoiceNums.join(", "), ") · אושרו ", usage.invoicedQty.toLocaleString(), " ", form.unit) : null,
+    usage.logCount > 0 ? /* @__PURE__ */ React.createElement("div", null, "יומני עבודה: ", usage.logCount, " · בוצעו ", usage.loggedQty.toLocaleString(), " ", form.unit) : null,
+    /* @__PURE__ */ React.createElement("div", { style: { color: "#6b7280", marginTop: 4 } }, "שינוי מחיר/מס'/תיאור/יחידה יתעדכן אוטומטית גם ביומני העבודה. חשבונות שנשמרו לא ישתנו.")
+  ) : null;
+  const hist = (item.priceHistory || []).slice(-3).reverse();
+  return /* @__PURE__ */ React.createElement(
+    Modal,
+    { title: "✏️ עריכת סעיף חוזה", onClose, width: 560 },
+    err && /* @__PURE__ */ React.createElement(Alert, { type: "error" }, err),
+    usageBanner,
+    /* @__PURE__ */ React.createElement(
+      "div",
+      { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
+      /* @__PURE__ */ React.createElement(Field, { label: "מס' סעיף", required: true }, /* @__PURE__ */ React.createElement(Input, { value: form.num, onChange: (e) => setForm({ ...form, num: e.target.value }) })),
+      /* @__PURE__ */ React.createElement(Field, { label: "קטגוריה" }, /* @__PURE__ */ React.createElement(Input, { value: form.cat, onChange: (e) => setForm({ ...form, cat: e.target.value }) }))
+    ),
+    /* @__PURE__ */ React.createElement(Field, { label: "תיאור", required: true }, /* @__PURE__ */ React.createElement(Input, { value: form.desc, onChange: (e) => setForm({ ...form, desc: e.target.value }) })),
+    /* @__PURE__ */ React.createElement(
+      "div",
+      { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 } },
+      /* @__PURE__ */ React.createElement(Field, { label: "יחידה", required: true }, /* @__PURE__ */ React.createElement(Input, { value: form.unit, onChange: (e) => setForm({ ...form, unit: e.target.value }) })),
+      /* @__PURE__ */ React.createElement(Field, { label: "כמות בחוזה" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.qty, onChange: (e) => setForm({ ...form, qty: e.target.value }) })),
+      /* @__PURE__ */ React.createElement(Field, { label: "מחיר יח'", required: true }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: form.price, onChange: (e) => setForm({ ...form, price: e.target.value }) }))
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e40af", fontWeight: 600 } }, 'סה"כ בחוזה: ₪', ((parseFloat(form.qty) || 0) * (parseFloat(form.price) || 0)).toLocaleString()),
+    hist.length > 0 && /* @__PURE__ */ React.createElement(
+      "div",
+      { style: { marginTop: 12, fontSize: 12, color: "#6b7280" } },
+      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, marginBottom: 3 } }, "🕐 שינויי מחיר אחרונים"),
+      hist.map((h, idx) => /* @__PURE__ */ React.createElement("div", { key: idx }, h.date, ": ₪", (h.oldPrice || 0).toLocaleString(), " ← ₪", (h.newPrice || 0).toLocaleString(), h.userName ? " (" + h.userName + ")" : ""))
+    ),
+    /* @__PURE__ */ React.createElement(
+      "div",
+      { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16, paddingTop: 12, borderTop: "1px solid #e5e7eb" } },
+      /* @__PURE__ */ React.createElement(Btn, { variant: "outline", onClick: onClose }, "ביטול"),
+      /* @__PURE__ */ React.createElement(Btn, { onClick: doSave }, "💾 שמור שינויים")
+    )
+  );
+}
+function ProjectForm({ project, onSave, onClose, user }) {
   const [f, setF] = useState(project ? {
     ...project,
     tenderItems: project.tenderItems || [],
@@ -641,19 +828,44 @@ function ProjectForm({ project, onSave, onClose }) {
   const [err, setErr] = useState("");
   const [newItem, setNewItem] = useState({ num: "", desc: "", unit: "", qty: "", price: "", cat: "" });
   const [newArea, setNewArea] = useState("");
-  const save = () => {
+  const [editingItem, setEditingItem] = useState(null);
+  // \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E9\u05E0\u05E2\u05E8\u05DB\u05D5 \u05D5\u05DE\u05DE\u05EA\u05D9\u05E0\u05D9\u05DD \u05DC\u05E1\u05E0\u05DB\u05E8\u05D5\u05DF \u05DC\u05D9\u05D5\u05DE\u05E0\u05D9 \u05D4\u05E2\u05D1\u05D5\u05D3\u05D4 \u2014 \u05DE\u05EA\u05D1\u05E6\u05E2 \u05E8\u05E7 \u05DB\u05E9\u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05D1\u05D0\u05DE\u05EA \u05E0\u05E9\u05DE\u05E8
+  const [pendingSync, setPendingSync] = useState([]);
+  const isAdmin = user?.role === ROLES.ADMIN;
+  const save = async () => {
     if (!f.name || !f.clientName) {
       setErr("\u05E9\u05DD \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05D5\u05E9\u05DD \u05DC\u05E7\u05D5\u05D7 \u05D4\u05DD \u05D7\u05D5\u05D1\u05D4");
       return;
     }
-    onSave(f);
+    await onSave(f);
+    // \u05D0\u05D7\u05E8\u05D9 \u05E9\u05DE\u05D9\u05E8\u05EA \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u2014 \u05DE\u05E1\u05E0\u05DB\u05E8\u05E0\u05D9\u05DD \u05D0\u05EA \u05D4\u05E1\u05E0\u05E4\u05E9\u05D5\u05D8 \u05E9\u05DC \u05D4\u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E9\u05E0\u05E2\u05E8\u05DB\u05D5 \u05DC\u05D9\u05D5\u05DE\u05E0\u05D9 \u05D4\u05E2\u05D1\u05D5\u05D3\u05D4
+    let synced = 0;
+    for (const it of pendingSync) {
+      synced += await syncWorklogsForItem(f.id, it);
+    }
+    setPendingSync([]);
+    if (synced > 0) alert("\u2705 \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05E0\u05E9\u05DE\u05E8. \u05E2\u05D5\u05D3\u05DB\u05E0\u05D5 " + synced + " \u05D9\u05D5\u05DE\u05E0\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4 \u05D1\u05D4\u05EA\u05D0\u05DD \u05DC\u05E9\u05D9\u05E0\u05D5\u05D9 \u05D1\u05E1\u05E2\u05D9\u05E4\u05D9\u05DD.");
+  };
+  const saveItemEdit = (updatedItem, meta) => {
+    setF((prev) => ({ ...prev, tenderItems: (prev.tenderItems || []).map((i) => i.id === updatedItem.id ? updatedItem : i) }));
+    if (meta && meta.syncLogs) setPendingSync((prev) => [...prev.filter((x) => x.id !== updatedItem.id), updatedItem]);
+    setEditingItem(null);
   };
   const addItem = () => {
     if (!newItem.num || !newItem.desc || !newItem.unit || !newItem.price) return;
     setF((prev) => ({ ...prev, tenderItems: [...prev.tenderItems, { ...newItem, id: genId(), qty: parseFloat(newItem.qty) || 0, price: parseFloat(newItem.price) || 0 }] }));
     setNewItem({ num: "", desc: "", unit: "", qty: "", price: "", cat: "" });
   };
-  const delItem = (id) => setF((prev) => ({ ...prev, tenderItems: (prev.tenderItems || []).filter((i) => i.id !== id) }));
+  const delItem = async (id) => {
+    const item = (f.tenderItems || []).find((i) => i.id === id);
+    // בפרויקט חדש שעדיין לא נשמר אין יומנים/חשבונות — מוחקים ישירות
+    if (item && project) {
+      const ok = await confirmDeleteTenderItem(f.id, item);
+      if (!ok) return;
+    }
+    setPendingSync((prev) => prev.filter((x) => x.id !== id));
+    setF((prev) => ({ ...prev, tenderItems: (prev.tenderItems || []).filter((i) => i.id !== id) }));
+  };
   const addArea = () => {
     if (!newArea.trim()) return;
     setF((prev) => ({ ...prev, workAreas: [...prev.workAreas, { id: genId(), name: newArea.trim() }] }));
@@ -663,7 +875,7 @@ function ProjectForm({ project, onSave, onClose }) {
   const tabStyle = (t) => ({ padding: "8px 16px", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: tab === t ? 700 : 400, color: tab === t ? "#2563eb" : "#6b7280", background: "none", borderBottom: tab === t ? "2px solid #2563eb" : "2px solid transparent" });
   return /* @__PURE__ */ React.createElement(Modal, { title: project ? "\u05E2\u05E8\u05D9\u05DB\u05EA \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8" : "\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05D7\u05D3\u05E9", onClose, width: 680 }, err && /* @__PURE__ */ React.createElement(Alert, { type: "error" }, err), /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "1px solid #e5e7eb", marginBottom: 16, display: "flex", gap: 0 } }, [["info", "\u{1F4CB} \u05E4\u05E8\u05D8\u05D9\u05DD"], ["items", "\u{1F4C4} \u05E1\u05E2\u05D9\u05E4\u05D9 \u05DE\u05DB\u05E8\u05D6"], ["areas", "\u{1F4CD} \u05D0\u05D6\u05D5\u05E8\u05D9\u05DD"]].map(
     ([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, style: tabStyle(k), onClick: () => setTab(k) }, l)
-  )), tab === "info" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05DD \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8", required: true }, /* @__PURE__ */ React.createElement(Input, { value: f.name, onChange: (e) => setF({ ...f, name: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05DD \u05DC\u05E7\u05D5\u05D7", required: true }, /* @__PURE__ */ React.createElement(Input, { value: f.clientName, onChange: (e) => setF({ ...f, clientName: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA \u05D4\u05EA\u05D7\u05DC\u05D4" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: f.startDate, onChange: (e) => setF({ ...f, startDate: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D8\u05D8\u05D5\u05E1" }, /* @__PURE__ */ React.createElement(Select, { value: f.status, onChange: (e) => setF({ ...f, status: e.target.value }) }, Object.entries(STATUS_HE).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v)))), /* @__PURE__ */ React.createElement(Field, { label: '\u05DE\u05E2"\u05DE %' }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: f.vatPct, onChange: (e) => setF({ ...f, vatPct: parseFloat(e.target.value) || 0 }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D9\u05DB\u05D1\u05D5\u05DF %" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: f.retentionPct, onChange: (e) => setF({ ...f, retentionPct: parseFloat(e.target.value) || 0 }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD" }, /* @__PURE__ */ React.createElement(Select, { value: f.paymentTerms || "net30", onChange: (e) => setF({ ...f, paymentTerms: e.target.value }) }, PAYMENT_TERMS.map(function(t){ return /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label); }))), /* @__PURE__ */ React.createElement(Field, { label: "\u05D9\u05D5\u05DD \u05EA\u05E9\u05DC\u05D5\u05DD \u05E7\u05D1\u05D5\u05E2" }, /* @__PURE__ */ React.createElement(Select, { value: f.paymentDay || 0, onChange: (e) => setF({ ...f, paymentDay: parseInt(e.target.value) || 0 }) }, PAYMENT_DAYS.map(function(d){ return /* @__PURE__ */ React.createElement("option", { key: d.id, value: d.id }, d.label); }))))), tab === "items" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { background: "#f8fafc", borderRadius: 8, padding: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#374151" } }, "\u05D4\u05D5\u05E1\u05E4\u05EA \u05E1\u05E2\u05D9\u05E3 \u05D7\u05D3\u05E9"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "80px 1fr 60px 80px 100px 120px auto", gap: 6, alignItems: "end" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05DE\u05E1' \u05E1\u05E2\u05D9\u05E3 *"), /* @__PURE__ */ React.createElement(Input, { value: newItem.num, onChange: (e) => setNewItem({ ...newItem, num: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05EA\u05D9\u05D0\u05D5\u05E8 *"), /* @__PURE__ */ React.createElement(Input, { value: newItem.desc, onChange: (e) => setNewItem({ ...newItem, desc: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05D9\u05D7\u05D9\u05D3\u05D4 *"), /* @__PURE__ */ React.createElement(Input, { value: newItem.unit, onChange: (e) => setNewItem({ ...newItem, unit: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05DB\u05DE\u05D5\u05EA"), /* @__PURE__ */ React.createElement(Input, { type: "number", value: newItem.qty, onChange: (e) => setNewItem({ ...newItem, qty: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05DE\u05D7\u05D9\u05E8 \u05D9\u05D7' *"), /* @__PURE__ */ React.createElement(Input, { type: "number", value: newItem.price, onChange: (e) => setNewItem({ ...newItem, price: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4"), /* @__PURE__ */ React.createElement(Input, { value: newItem.cat, onChange: (e) => setNewItem({ ...newItem, cat: e.target.value }) })), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: addItem, style: { marginTop: 19 } }, "+ \u05D4\u05D5\u05E1\u05E3"))), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 260, overflow: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb", position: "sticky", top: 0, background: "#fff" } }, ["\u05E1\u05E2\u05D9\u05E3", "\u05EA\u05D9\u05D0\u05D5\u05E8", "\u05D9\u05D7\u05D9\u05D3\u05D4", "\u05DB\u05DE\u05D5\u05EA", "\u05DE\u05D7\u05D9\u05E8 \u05D9\u05D7'", "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 12 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, (f.tenderItems || []).map((i) => /* @__PURE__ */ React.createElement("tr", { key: i.id, style: { borderBottom: "1px solid #f3f4f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", fontWeight: 700, color: "#2563eb" } }, i.num), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, i.desc), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, i.unit), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, (i.qty || 0).toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, "\u20AA", (i.price || 0).toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#6b7280", small: true }, i.cat || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => delItem(i.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626" } }, "\u2715")))))), (f.tenderItems || []).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E2\u05D3\u05D9\u05D9\u05DF"))), tab === "areas" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(Input, { value: newArea, onChange: (e) => setNewArea(e.target.value), placeholder: "\u05E9\u05DD \u05D0\u05D6\u05D5\u05E8 \u05E2\u05D1\u05D5\u05D3\u05D4...", onKeyDown: (e) => e.key === "Enter" && addArea() }), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: addArea }, "+ \u05D4\u05D5\u05E1\u05E3")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, (f.workAreas || []).map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, fontWeight: 500 } }, "\u{1F4CD} ", a.name), /* @__PURE__ */ React.createElement("button", { onClick: () => delArea(a.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626" } }, "\u2715"))), (f.workAreas || []).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05D0\u05D6\u05D5\u05E8\u05D9\u05DD \u05E2\u05D3\u05D9\u05D9\u05DF"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16, paddingTop: 12, borderTop: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement(Btn, { variant: "outline", onClick: onClose }, "\u05D1\u05D9\u05D8\u05D5\u05DC"), /* @__PURE__ */ React.createElement(Btn, { onClick: save }, "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8")));
+  )), tab === "info" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } }, /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05DD \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8", required: true }, /* @__PURE__ */ React.createElement(Input, { value: f.name, onChange: (e) => setF({ ...f, name: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E9\u05DD \u05DC\u05E7\u05D5\u05D7", required: true }, /* @__PURE__ */ React.createElement(Input, { value: f.clientName, onChange: (e) => setF({ ...f, clientName: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05D0\u05E8\u05D9\u05DA \u05D4\u05EA\u05D7\u05DC\u05D4" }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: f.startDate, onChange: (e) => setF({ ...f, startDate: e.target.value }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E1\u05D8\u05D8\u05D5\u05E1" }, /* @__PURE__ */ React.createElement(Select, { value: f.status, onChange: (e) => setF({ ...f, status: e.target.value }) }, Object.entries(STATUS_HE).map(([k, v]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, v)))), /* @__PURE__ */ React.createElement(Field, { label: '\u05DE\u05E2"\u05DE %' }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: f.vatPct, onChange: (e) => setF({ ...f, vatPct: parseFloat(e.target.value) || 0 }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05E2\u05D9\u05DB\u05D1\u05D5\u05DF %" }, /* @__PURE__ */ React.createElement(Input, { type: "number", value: f.retentionPct, onChange: (e) => setF({ ...f, retentionPct: parseFloat(e.target.value) || 0 }) })), /* @__PURE__ */ React.createElement(Field, { label: "\u05EA\u05E0\u05D0\u05D9 \u05EA\u05E9\u05DC\u05D5\u05DD" }, /* @__PURE__ */ React.createElement(Select, { value: f.paymentTerms || "net30", onChange: (e) => setF({ ...f, paymentTerms: e.target.value }) }, PAYMENT_TERMS.map(function(t){ return /* @__PURE__ */ React.createElement("option", { key: t.id, value: t.id }, t.label); }))), /* @__PURE__ */ React.createElement(Field, { label: "\u05D9\u05D5\u05DD \u05EA\u05E9\u05DC\u05D5\u05DD \u05E7\u05D1\u05D5\u05E2" }, /* @__PURE__ */ React.createElement(Select, { value: f.paymentDay || 0, onChange: (e) => setF({ ...f, paymentDay: parseInt(e.target.value) || 0 }) }, PAYMENT_DAYS.map(function(d){ return /* @__PURE__ */ React.createElement("option", { key: d.id, value: d.id }, d.label); }))))), tab === "items" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { background: "#f8fafc", borderRadius: 8, padding: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#374151" } }, "\u05D4\u05D5\u05E1\u05E4\u05EA \u05E1\u05E2\u05D9\u05E3 \u05D7\u05D3\u05E9"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "80px 1fr 60px 80px 100px 120px auto", gap: 6, alignItems: "end" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05DE\u05E1' \u05E1\u05E2\u05D9\u05E3 *"), /* @__PURE__ */ React.createElement(Input, { value: newItem.num, onChange: (e) => setNewItem({ ...newItem, num: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05EA\u05D9\u05D0\u05D5\u05E8 *"), /* @__PURE__ */ React.createElement(Input, { value: newItem.desc, onChange: (e) => setNewItem({ ...newItem, desc: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05D9\u05D7\u05D9\u05D3\u05D4 *"), /* @__PURE__ */ React.createElement(Input, { value: newItem.unit, onChange: (e) => setNewItem({ ...newItem, unit: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05DB\u05DE\u05D5\u05EA"), /* @__PURE__ */ React.createElement(Input, { type: "number", value: newItem.qty, onChange: (e) => setNewItem({ ...newItem, qty: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05DE\u05D7\u05D9\u05E8 \u05D9\u05D7' *"), /* @__PURE__ */ React.createElement(Input, { type: "number", value: newItem.price, onChange: (e) => setNewItem({ ...newItem, price: e.target.value }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginBottom: 3 } }, "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4"), /* @__PURE__ */ React.createElement(Input, { value: newItem.cat, onChange: (e) => setNewItem({ ...newItem, cat: e.target.value }) })), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: addItem, style: { marginTop: 19 } }, "+ \u05D4\u05D5\u05E1\u05E3"))), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 260, overflow: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { borderBottom: "2px solid #e5e7eb", position: "sticky", top: 0, background: "#fff" } }, ["\u05E1\u05E2\u05D9\u05E3", "\u05EA\u05D9\u05D0\u05D5\u05E8", "\u05D9\u05D7\u05D9\u05D3\u05D4", "\u05DB\u05DE\u05D5\u05EA", "\u05DE\u05D7\u05D9\u05E8 \u05D9\u05D7'", "\u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D4", ""].map((h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "7px 8px", textAlign: "right", color: "#6b7280", fontSize: 12 } }, h)))), /* @__PURE__ */ React.createElement("tbody", null, (f.tenderItems || []).map((i) => /* @__PURE__ */ React.createElement("tr", { key: i.id, style: { borderBottom: "1px solid #f3f4f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", fontWeight: 700, color: "#2563eb" } }, i.num), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, i.desc), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, i.unit), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, (i.qty || 0).toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, "\u20AA", (i.price || 0).toLocaleString()), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px" } }, /* @__PURE__ */ React.createElement(Badge, { color: "#6b7280", small: true }, i.cat || "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", whiteSpace: "nowrap" } }, isAdmin && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingItem(i), title: "\u05e2\u05e8\u05d9\u05db\u05ea \u05e1\u05e2\u05d9\u05e3", style: { border: "none", background: "none", cursor: "pointer", fontSize: 13, marginLeft: 6 } }, "\u270f\ufe0f"), isAdmin && /* @__PURE__ */ React.createElement("button", { onClick: () => delItem(i.id), title: "\u05de\u05d7\u05d9\u05e7\u05ea \u05e1\u05e2\u05d9\u05e3", style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626" } }, "\u2715")))))), (f.tenderItems || []).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05E1\u05E2\u05D9\u05E4\u05D9\u05DD \u05E2\u05D3\u05D9\u05D9\u05DF"))), tab === "areas" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(Input, { value: newArea, onChange: (e) => setNewArea(e.target.value), placeholder: "\u05E9\u05DD \u05D0\u05D6\u05D5\u05E8 \u05E2\u05D1\u05D5\u05D3\u05D4...", onKeyDown: (e) => e.key === "Enter" && addArea() }), /* @__PURE__ */ React.createElement(Btn, { size: "sm", onClick: addArea }, "+ \u05D4\u05D5\u05E1\u05E3")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, (f.workAreas || []).map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, fontWeight: 500 } }, "\u{1F4CD} ", a.name), /* @__PURE__ */ React.createElement("button", { onClick: () => delArea(a.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626" } }, "\u2715"))), (f.workAreas || []).length === 0 && /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05D0\u05D6\u05D5\u05E8\u05D9\u05DD \u05E2\u05D3\u05D9\u05D9\u05DF"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16, paddingTop: 12, borderTop: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement(Btn, { variant: "outline", onClick: onClose }, "\u05D1\u05D9\u05D8\u05D5\u05DC"), /* @__PURE__ */ React.createElement(Btn, { onClick: save }, "\u{1F4BE} \u05E9\u05DE\u05D5\u05E8 \u05E4\u05E8\u05D5\u05D9\u05E7\u05D8")), editingItem && /* @__PURE__ */ React.createElement(TenderItemEditModal, { item: editingItem, projectId: f.id, allItems: f.tenderItems || [], user, onSave: saveItemEdit, onClose: () => setEditingItem(null) }));
 }
 function ExcelUploader({ project, onItemsImported }) {
   const [file, setFile] = useState(null);
@@ -795,6 +1007,7 @@ function ProjectDetail({ project: initProject, onBack, user }) {
   const [projLogs, setProjLogs] = useState([]);
   const [projExpenses, setProjExpenses] = useState([]);
   const [showAddItem, setShowAddItem] = useState(false);
+  const [editItem, setEditItem] = useState(null);
   const [newItemForm, setNewItemForm] = useState({ num: "", desc: "", unit: "", qty: "", price: "", cat: "" });
   const addItemManually = async () => {
     if (!newItemForm.num.trim() || !newItemForm.desc.trim()) {
@@ -834,8 +1047,30 @@ function ProjectDetail({ project: initProject, onBack, user }) {
     setProject(updated);
     setShowEdit(false);
   };
+  // \u05E8\u05E2\u05E0\u05D5\u05DF \u05D9\u05D5\u05DE\u05E0\u05D9 \u05D4\u05E2\u05D1\u05D5\u05D3\u05D4 \u05E9\u05DC \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05D0\u05D7\u05E8\u05D9 \u05E1\u05E0\u05DB\u05E8\u05D5\u05DF \u05DE\u05D7\u05D9\u05E8\u05D9\u05DD
+  const refreshLogs = async () => {
+    const l = await db.get("worklogs") || [];
+    setProjLogs((Array.isArray(l) ? l : []).filter((x) => x.projectId === project.id));
+  };
+  const saveItemEdit = async (updatedItem, meta) => {
+    const list = await db.get("projects") || [];
+    const updated = list.map((p) => p.id === project.id ? { ...p, tenderItems: (p.tenderItems || []).map((i) => i.id === updatedItem.id ? updatedItem : i) } : p);
+    await db.set("projects", updated);
+    // \u05E1\u05E0\u05DB\u05E8\u05D5\u05DF \u05D4\u05E1\u05E0\u05E4\u05E9\u05D5\u05D8 \u05DC\u05D9\u05D5\u05DE\u05E0\u05D9 \u05D4\u05E2\u05D1\u05D5\u05D3\u05D4 \u2014 \u05DB\u05D3\u05D9 \u05E9\u05D4\u05D7\u05E9\u05D1\u05D5\u05DF \u05D4\u05D1\u05D0 \u05D9\u05D7\u05E9\u05D1 \u05DC\u05E4\u05D9 \u05D4\u05DE\u05D7\u05D9\u05E8 \u05D4\u05D7\u05D3\u05E9
+    let synced = 0;
+    if (meta && meta.syncLogs) {
+      synced = await syncWorklogsForItem(project.id, updatedItem);
+      if (synced > 0) await refreshLogs();
+    }
+    setEditItem(null);
+    await reload();
+    if (synced > 0) alert("\u2705 \u05D4\u05E1\u05E2\u05D9\u05E3 \u05E2\u05D5\u05D3\u05DB\u05DF. \u05E2\u05D5\u05D3\u05DB\u05E0\u05D5 \u05D2\u05DD " + synced + " \u05D9\u05D5\u05DE\u05E0\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4.");
+  };
   const deleteItem = async (itemId) => {
-    if (!confirm("\u05DC\u05DE\u05D7\u05D5\u05E7 \u05E1\u05E2\u05D9\u05E3?")) return;
+    const item = (project.tenderItems || []).find((i) => i.id === itemId);
+    if (!item) return;
+    const ok = await confirmDeleteTenderItem(project.id, item);
+    if (!ok) return;
     const list = await db.get("projects") || [];
     const updated = list.map((p) => p.id === project.id ? { ...p, tenderItems: (p.tenderItems || []).filter((i) => i.id !== itemId) } : p);
     await db.set("projects", updated);
@@ -948,9 +1183,14 @@ function ProjectDetail({ project: initProject, onBack, user }) {
       /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "center" } }, (i.qty || 0).toLocaleString()),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "center" } }, "\u20AA", (i.price || 0).toLocaleString()),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "center", fontWeight: 700, color: "#059669" } }, "\u20AA", ((i.qty || 0) * (i.price || 0)).toLocaleString()),
-      /* @__PURE__ */ React.createElement("td", { style: { padding: "7px 8px", textAlign: "center" } }, user.role === ROLES.ADMIN && /* @__PURE__ */ React.createElement("button", { onClick: () => deleteItem(i.id), style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 13 } }, "\u2715"))
+      /* @__PURE__ */ React.createElement(
+        "td",
+        { style: { padding: "7px 8px", textAlign: "center", whiteSpace: "nowrap" } },
+        user.role === ROLES.ADMIN && /* @__PURE__ */ React.createElement("button", { onClick: () => setEditItem(i), title: "\u05e2\u05e8\u05d9\u05db\u05ea \u05e1\u05e2\u05d9\u05e3", style: { border: "none", background: "none", cursor: "pointer", fontSize: 13, marginLeft: 6 } }, "\u270f\ufe0f"),
+        user.role === ROLES.ADMIN && /* @__PURE__ */ React.createElement("button", { onClick: () => deleteItem(i.id), title: "\u05de\u05d7\u05d9\u05e7\u05ea \u05e1\u05e2\u05d9\u05e3", style: { border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 13 } }, "\u2715")
+      )
     ))), /* @__PURE__ */ React.createElement("tfoot", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "#eff6ff", borderTop: "2px solid #bfdbfe" } }, /* @__PURE__ */ React.createElement("td", { colSpan: 5, style: { padding: "8px 8px", fontWeight: 700, color: "#1e40af", fontSize: 12 } }, '\u05E1\u05D4"\u05DB ', cat), /* @__PURE__ */ React.createElement("td", { style: { padding: "8px 8px", fontWeight: 800, color: "#1e40af", fontSize: 14 } }, "\u20AA", catTotal.toLocaleString()), /* @__PURE__ */ React.createElement("td", null))))));
-  }), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "left", padding: "12px 8px", fontWeight: 800, fontSize: 16, color: "#111" } }, '\u05E1\u05D4"\u05DB \u05E9\u05D5\u05D5\u05D9 \u05D7\u05D5\u05D6\u05D4: ', /* @__PURE__ */ React.createElement("span", { style: { color: "#2563eb" } }, "\u20AA", totalContractValue.toLocaleString())))), tab === "areas" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4CD} \u05D0\u05D6\u05D5\u05E8\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4"), project.workAreas?.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05D0\u05D6\u05D5\u05E8\u05D9\u05DD \u2014 \u05E2\u05E8\u05D5\u05DA \u05D0\u05EA \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05DC\u05D4\u05D5\u05E1\u05E4\u05D4") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, (project.workAreas || []).map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, style: { padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, fontWeight: 500 } }, "\u{1F4CD} ", a.name)))), tab === "workers" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F477} \u05E1\u05D5\u05D2\u05D9 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05D5\u05E2\u05DC\u05D5\u05D9\u05D5\u05EA"), !project.workerTypes?.length ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05E1\u05D5\u05D2\u05D9 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u2014 \u05E2\u05E8\u05D5\u05DA \u05D0\u05EA \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05DC\u05D4\u05D5\u05E1\u05E4\u05D4") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, (project.workerTypes || []).map((w) => /* @__PURE__ */ React.createElement("div", { key: w.id, style: { padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, fontWeight: 600 } }, "\u{1F477} ", w.name), /* @__PURE__ */ React.createElement("span", { style: { color: "#059669", fontWeight: 700, fontSize: 15 } }, "\u20AA", w.dailyCost, " / \u05D9\u05D5\u05DD"))))), tab === "expenses" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(ProjectExpenses, { projectId: project.id })), tab === "profitability" && /* @__PURE__ */ React.createElement(ProfitabilityDashboard, { project, logs: projLogs, expenses: projExpenses }), tab === "areareport" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4CD} \u05D3\u05D5\u05D7 \u05DC\u05E4\u05D9 \u05D0\u05D6\u05D5\u05E8\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4"), /* @__PURE__ */ React.createElement(AreaReport, { projectId: project.id, workAreas: project.workAreas || [] })), showEdit && /* @__PURE__ */ React.createElement(ProjectForm, { project, onSave: saveEdit, onClose: () => setShowEdit(false) }));
+  }), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "left", padding: "12px 8px", fontWeight: 800, fontSize: 16, color: "#111" } }, '\u05E1\u05D4"\u05DB \u05E9\u05D5\u05D5\u05D9 \u05D7\u05D5\u05D6\u05D4: ', /* @__PURE__ */ React.createElement("span", { style: { color: "#2563eb" } }, "\u20AA", totalContractValue.toLocaleString())))), tab === "areas" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4CD} \u05D0\u05D6\u05D5\u05E8\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4"), project.workAreas?.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05D0\u05D6\u05D5\u05E8\u05D9\u05DD \u2014 \u05E2\u05E8\u05D5\u05DA \u05D0\u05EA \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05DC\u05D4\u05D5\u05E1\u05E4\u05D4") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, (project.workAreas || []).map((a) => /* @__PURE__ */ React.createElement("div", { key: a.id, style: { padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, fontWeight: 500 } }, "\u{1F4CD} ", a.name)))), tab === "workers" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F477} \u05E1\u05D5\u05D2\u05D9 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05D5\u05E2\u05DC\u05D5\u05D9\u05D5\u05EA"), !project.workerTypes?.length ? /* @__PURE__ */ React.createElement("p", { style: { color: "#9ca3af", textAlign: "center", padding: 20 } }, "\u05D0\u05D9\u05DF \u05E1\u05D5\u05D2\u05D9 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u2014 \u05E2\u05E8\u05D5\u05DA \u05D0\u05EA \u05D4\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05DC\u05D4\u05D5\u05E1\u05E4\u05D4") : /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, (project.workerTypes || []).map((w) => /* @__PURE__ */ React.createElement("div", { key: w.id, style: { padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, fontWeight: 600 } }, "\u{1F477} ", w.name), /* @__PURE__ */ React.createElement("span", { style: { color: "#059669", fontWeight: 700, fontSize: 15 } }, "\u20AA", w.dailyCost, " / \u05D9\u05D5\u05DD"))))), tab === "expenses" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(ProjectExpenses, { projectId: project.id })), tab === "profitability" && /* @__PURE__ */ React.createElement(ProfitabilityDashboard, { project, logs: projLogs, expenses: projExpenses }), tab === "areareport" && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "\u{1F4CD} \u05D3\u05D5\u05D7 \u05DC\u05E4\u05D9 \u05D0\u05D6\u05D5\u05E8\u05D9 \u05E2\u05D1\u05D5\u05D3\u05D4"), /* @__PURE__ */ React.createElement(AreaReport, { projectId: project.id, workAreas: project.workAreas || [] })), showEdit && /* @__PURE__ */ React.createElement(ProjectForm, { project, user, onSave: saveEdit, onClose: () => setShowEdit(false) }), editItem && /* @__PURE__ */ React.createElement(TenderItemEditModal, { item: editItem, projectId: project.id, allItems: project.tenderItems || [], user, onSave: saveItemEdit, onClose: () => setEditItem(null) }));
 }
 function TenderItemPicker({ items, value, onChange, doneByItem }) {
   const [open, setOpen] = useState(false);
